@@ -52,6 +52,22 @@ export async function registerRoutes(
     }
   }));
 
+  // Create default admin account if none exists
+  const existingAdmin = await storage.getUserByEmail("admin@mise.app");
+  if (!existingAdmin) {
+    const hashedPassword = await bcrypt.hash("admin123", 10);
+    await storage.createUser({
+      username: "admin@mise.app",
+      name: "Administrator",
+      email: "admin@mise.app",
+      password: hashedPassword,
+      role: "admin",
+      isApproved: true,
+      position: "Admin"
+    });
+    console.log("Default admin account created: admin@mise.app / admin123");
+  }
+
   // Auth middleware helper
   const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
     if (!req.session.userId) {
