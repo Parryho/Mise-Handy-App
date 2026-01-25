@@ -14,16 +14,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 
 const CATEGORIES = [
-  { id: "Soups", label: "Suppen", image: "/categories/suppen.png" },
-  { id: "Starters", label: "Vorspeisen", image: "/categories/vorspeisen.png" },
-  { id: "Mains", label: "Hauptspeise Fleisch", image: "/categories/hauptspeise-fleisch.png" },
-  { id: "MainsVeg", label: "Hauptspeise Veg", image: "/categories/hauptspeise-veg.png" },
-  { id: "Sides", label: "Beilagen", image: "/categories/beilagen.png" },
-  { id: "Desserts", label: "Desserts", image: "/categories/desserts.png" },
-  { id: "Salads", label: "Salate", image: "/categories/salate.png" },
-  { id: "Breakfast", label: "Frühstück", image: "/categories/fruehstueck.png" },
-  { id: "Snacks", label: "Snacks", image: "/categories/snacks.png" },
-  { id: "Drinks", label: "Getränke", image: "/categories/getraenke.png" },
+  { id: "Soups", label: "Suppen", icon: "S", symbol: "🥄" },
+  { id: "Starters", label: "Vorspeisen", icon: "V", symbol: "🍽️" },
+  { id: "Mains", label: "Hauptspeise Fleisch", icon: "H", symbol: "🥩" },
+  { id: "MainsVeg", label: "Hauptspeise Veg", icon: "H", symbol: "🥗" },
+  { id: "Sides", label: "Beilagen", icon: "B", symbol: "🥔" },
+  { id: "Desserts", label: "Desserts", icon: "D", symbol: "🍰" },
+  { id: "Salads", label: "Salate", icon: "S", symbol: "🥬" },
+  { id: "Breakfast", label: "Frühstück", icon: "F", symbol: "☕" },
+  { id: "Snacks", label: "Snacks", icon: "S", symbol: "🥨" },
+  { id: "Drinks", label: "Getränke", icon: "G", symbol: "🍹" },
 ];
 
 export default function Recipes() {
@@ -110,20 +110,23 @@ export default function Recipes() {
           <button
             key={category.id}
             onClick={() => setSelectedCategory(category.id)}
-            className="relative aspect-square rounded-xl overflow-hidden group active:scale-[0.98] transition-transform"
+            className="relative aspect-square rounded-xl overflow-hidden group active:scale-[0.98] transition-transform shadow-md"
+            style={{ backgroundColor: '#F37021' }}
             data-testid={`category-${category.id.toLowerCase()}`}
           >
-            <img 
-              src={category.image} 
-              alt={category.label}
-              className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-            <div className="absolute bottom-0 left-0 right-0 p-3 text-white">
-              <h3 className="font-heading font-bold text-lg leading-tight drop-shadow-md">
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-white text-7xl font-heading font-bold opacity-90 select-none">
+                {category.icon}
+              </span>
+              <span className="absolute top-3 right-3 text-3xl opacity-80">
+                {category.symbol}
+              </span>
+            </div>
+            <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/40 to-transparent">
+              <h3 className="text-white font-heading font-bold text-base leading-tight drop-shadow-md">
                 {category.label}
               </h3>
-              <span className="text-xs text-white/80">
+              <span className="text-xs text-white/90">
                 {recipeCounts[category.id] || 0} Rezepte
               </span>
             </div>
