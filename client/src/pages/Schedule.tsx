@@ -336,25 +336,39 @@ function MonthDayScheduleCell({ date, dayNum, isToday, entries, staffList, onSav
     return staffList.find(s => s.id === staffId)?.color || '#888';
   };
 
+  const getStaffName = (staffId: number) => {
+    const staff = staffList.find(s => s.id === staffId);
+    return staff?.name?.split(' ')[0] || '?';
+  };
+
+  const getTypeIcon = (type: string, shift?: string | null) => {
+    if (type === 'shift') return SHIFTS.find(s => s.key === shift)?.icon || '📅';
+    if (type === 'vacation') return '🌴';
+    if (type === 'sick') return '🤒';
+    return '✕';
+  };
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className={`h-20 p-1 rounded border text-left overflow-hidden ${isToday ? 'border-primary bg-primary/10' : 'border-border'} hover:bg-secondary/50 transition-colors`}>
-          <div className="text-xs text-muted-foreground">{dayNum}</div>
-          <div className="flex flex-wrap gap-0.5 mt-1">
-            {entries.slice(0, 4).map((entry, idx) => (
+        <button className={`min-h-20 p-1 rounded border text-left overflow-hidden ${isToday ? 'border-primary bg-primary/10' : 'border-border'} hover:bg-secondary/50 transition-colors`}>
+          <div className="text-xs text-muted-foreground font-medium">{dayNum}</div>
+          <div className="flex flex-col gap-0.5 mt-0.5">
+            {entries.slice(0, 3).map((entry, idx) => (
               <div 
                 key={idx} 
-                className="w-4 h-4 rounded-full flex items-center justify-center text-[8px]"
-                style={{ backgroundColor: getStaffColor(entry.staffId) + '30' }}
+                className="flex items-center gap-0.5 text-[7px] leading-tight px-0.5 py-0.5 rounded"
+                style={{ backgroundColor: getStaffColor(entry.staffId) + '25' }}
               >
-                {entry.type === 'shift' && SHIFTS.find(s => s.key === entry.shift)?.icon}
-                {entry.type === 'vacation' && '🌴'}
-                {entry.type === 'sick' && '🤒'}
-                {entry.type === 'off' && '✕'}
+                <span>{getTypeIcon(entry.type, entry.shift)}</span>
+                <span className="truncate font-medium" style={{ color: getStaffColor(entry.staffId) }}>
+                  {getStaffName(entry.staffId)}
+                </span>
               </div>
             ))}
-            {entries.length > 4 && <span className="text-[8px]">+{entries.length - 4}</span>}
+            {entries.length > 3 && (
+              <span className="text-[7px] text-muted-foreground">+{entries.length - 3} mehr</span>
+            )}
           </div>
         </button>
       </DialogTrigger>

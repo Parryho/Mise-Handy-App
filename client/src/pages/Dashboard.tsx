@@ -22,21 +22,19 @@ export default function Dashboard() {
 
   return (
     <div className="p-4 space-y-6">
-      {/* Header */}
+      {/* Header with Mise Logo */}
       <header className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">ChefMate</h1>
-          <p className="text-sm text-muted-foreground">{t("kitchenOverview")}</p>
+          <img src="/mise-logo.png" alt="Mise - befor Serve" className="h-12 object-contain" />
+          <p className="text-sm text-muted-foreground mt-1">{t("kitchenOverview")}</p>
         </div>
-        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
-          <span className="font-heading font-bold text-primary">CM</span>
-        </div>
+        <img src="/mise-icon.png" alt="Mise" className="h-10 w-10 rounded-lg shadow-sm" />
       </header>
 
       {/* Hero Stats */}
       <div className="grid grid-cols-2 gap-3">
         <Link href="/haccp">
-          <div className="bg-gradient-to-br from-primary to-blue-600 rounded-xl p-4 text-white shadow-lg cursor-pointer active:scale-95 transition-transform">
+          <div className="bg-gradient-to-br from-primary to-orange-600 rounded-xl p-4 text-white shadow-lg cursor-pointer active:scale-95 transition-transform">
             <div className="flex justify-between items-start mb-2">
               <ThermometerSnowflake className="h-6 w-6 opacity-80" />
               {warnings > 0 && <Badge variant="destructive" className="h-5 px-1.5">{warnings}</Badge>}
