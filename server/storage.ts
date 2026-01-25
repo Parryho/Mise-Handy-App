@@ -9,8 +9,9 @@ import {
   type Staff, type InsertStaff,
   type ScheduleEntry, type InsertScheduleEntry,
   type MenuPlan, type InsertMenuPlan,
+  type AppSetting, type InsertAppSetting,
   users, recipes, ingredients, fridges, haccpLogs,
-  guestCounts, cateringEvents, staff, scheduleEntries, menuPlans
+  guestCounts, cateringEvents, staff, scheduleEntries, menuPlans, appSettings
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
@@ -18,7 +19,16 @@ import { eq, desc, and, gte, lte } from "drizzle-orm";
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  getAllUsers(): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
+  updateUser(id: string, user: Partial<InsertUser>): Promise<User | undefined>;
+  deleteUser(id: string): Promise<void>;
+  
+  // App settings
+  getSetting(key: string): Promise<AppSetting | undefined>;
+  getAllSettings(): Promise<AppSetting[]>;
+  setSetting(key: string, value: string): Promise<AppSetting>;
   
   getRecipes(): Promise<Recipe[]>;
   getRecipe(id: number): Promise<Recipe | undefined>;
@@ -87,9 +97,48 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return db.select().from(users);
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
     return user;
+  }
+
+  async updateUser(id: string, user: Partial<InsertUser>): Promise<User | undefined> {
+    const [updated] = await db.update(users).set(user).where(eq(users.id, id)).returning();
+    return updated;
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await db.delete(users).where(eq(users.id, id));
+  }
+
+  // App settings
+  async getSetting(key: string): Promise<AppSetting | undefined> {
+    const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, key));
+    return setting;
+  }
+
+  async getAllSettings(): Promise<AppSetting[]> {
+    return db.select().from(appSettings);
+  }
+
+  async setSetting(key: string, value: string): Promise<AppSetting> {
+    const existing = await this.getSetting(key);
+    if (existing) {
+      const [updated] = await db.update(appSettings).set({ value }).where(eq(appSettings.key, key)).returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(appSettings).values({ key, value }).returning();
+      return created;
+    }
   }
 
   async getRecipes(): Promise<Recipe[]> {

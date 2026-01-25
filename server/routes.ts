@@ -1,16 +1,291 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { scrapeRecipe } from "./scraper";
 import { 
   insertRecipeSchema, insertIngredientSchema, insertFridgeSchema, insertHaccpLogSchema,
-  insertGuestCountSchema, insertCateringEventSchema, insertStaffSchema, insertScheduleEntrySchema, insertMenuPlanSchema
+  insertGuestCountSchema, insertCateringEventSchema, insertStaffSchema, insertScheduleEntrySchema, insertMenuPlanSchema,
+  registerUserSchema, loginUserSchema
 } from "@shared/schema";
+import bcrypt from "bcryptjs";
+import session from "express-session";
+
+// Extend express-session to include user
+declare module "express-session" {
+  interface SessionData {
+    userId?: string;
+  }
+}
+
+// Kitchen positions
+const KITCHEN_POSITIONS = [
+  "Küchenchef", "Sous-Chef", "Koch", "Früh-Koch", "Lehrling", "Abwasch", "Küchenhilfe", "Patissier", "Commis"
+];
+
+// Roles with permission levels
+const ROLE_PERMISSIONS: Record<string, number> = {
+  admin: 100,
+  souschef: 80,
+  koch: 60,
+  fruehkoch: 50,
+  lehrling: 30,
+  abwasch: 20,
+  guest: 10,
+};
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  // Session middleware with improved security
+  const isProduction = process.env.NODE_ENV === "production";
+  app.use(session({
+    secret: process.env.SESSION_SECRET || "chefmate-dev-secret-key-" + Math.random().toString(36),
+    resave: false,
+    saveUninitialized: false,
+    cookie: { 
+      secure: isProduction,
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    }
+  }));
+
+  // Auth middleware helper
+  const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ error: "Nicht angemeldet" });
+    }
+    const user = await storage.getUser(req.session.userId);
+    if (!user || !user.isApproved) {
+      return res.status(401).json({ error: "Keine Berechtigung" });
+    }
+    (req as any).user = user;
+    next();
+  };
+
+  const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ error: "Nicht angemeldet" });
+    }
+    const user = await storage.getUser(req.session.userId);
+    if (!user || user.role !== "admin") {
+      return res.status(403).json({ error: "Keine Berechtigung" });
+    }
+    (req as any).user = user;
+    next();
+  };
+
+  // === AUTH ROUTES ===
+  
+  // Register new user
+  app.post("/api/auth/register", async (req, res) => {
+    try {
+      const parsed = registerUserSchema.parse(req.body);
+      
+      // Check if email already exists
+      const existing = await storage.getUserByEmail(parsed.email);
+      if (existing) {
+        return res.status(400).json({ error: "E-Mail-Adresse bereits registriert" });
+      }
+      
+      // Hash password
+      const hashedPassword = await bcrypt.hash(parsed.password, 10);
+      
+      // Create user (not approved yet, role is guest by default)
+      const user = await storage.createUser({
+        username: parsed.email,
+        password: hashedPassword,
+        name: parsed.name,
+        email: parsed.email,
+        position: parsed.position,
+        role: "guest",
+        isApproved: false,
+      });
+      
+      res.status(201).json({ 
+        message: "Registrierung erfolgreich! Bitte warten Sie auf die Freischaltung durch den Administrator.",
+        user: { id: user.id, name: user.name, email: user.email, isApproved: user.isApproved }
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Login
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const parsed = loginUserSchema.parse(req.body);
+      
+      const user = await storage.getUserByEmail(parsed.email);
+      if (!user) {
+        return res.status(401).json({ error: "Ungültige Anmeldedaten" });
+      }
+      
+      const validPassword = await bcrypt.compare(parsed.password, user.password);
+      if (!validPassword) {
+        return res.status(401).json({ error: "Ungültige Anmeldedaten" });
+      }
+      
+      if (!user.isApproved) {
+        return res.status(403).json({ error: "Ihr Konto wurde noch nicht freigeschaltet. Bitte warten Sie auf die Freischaltung." });
+      }
+      
+      // Set session
+      req.session.userId = user.id;
+      
+      res.json({ 
+        user: { 
+          id: user.id, 
+          name: user.name, 
+          email: user.email, 
+          position: user.position, 
+          role: user.role,
+          isApproved: user.isApproved
+        }
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Logout
+  app.post("/api/auth/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ error: "Logout fehlgeschlagen" });
+      }
+      res.json({ message: "Erfolgreich abgemeldet" });
+    });
+  });
+
+  // Get current user
+  app.get("/api/auth/me", async (req, res) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ error: "Nicht angemeldet" });
+    }
+    
+    const user = await storage.getUser(req.session.userId);
+    if (!user) {
+      req.session.destroy(() => {});
+      return res.status(401).json({ error: "Benutzer nicht gefunden" });
+    }
+    
+    res.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      position: user.position,
+      role: user.role,
+      isApproved: user.isApproved
+    });
+  });
+
+  // Get kitchen positions
+  app.get("/api/auth/positions", (req, res) => {
+    res.json(KITCHEN_POSITIONS);
+  });
+
+  // Check if initial setup is needed
+  app.get("/api/auth/check-setup", async (req, res) => {
+    const users = await storage.getAllUsers();
+    res.json({ needsSetup: users.length === 0 });
+  });
+
+  // === ADMIN: User Management ===
+  
+  // Get all users (admin only)
+  app.get("/api/admin/users", requireAdmin, async (req, res) => {
+    const users = await storage.getAllUsers();
+    res.json(users.map(u => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      position: u.position,
+      role: u.role,
+      isApproved: u.isApproved,
+      createdAt: u.createdAt
+    })));
+  });
+
+  // Update user (admin only)
+  app.put("/api/admin/users/:id", requireAdmin, async (req, res) => {
+    const { role, isApproved, position } = req.body;
+    const updated = await storage.updateUser(req.params.id, { role, isApproved, position });
+    
+    if (!updated) {
+      return res.status(404).json({ error: "Benutzer nicht gefunden" });
+    }
+    
+    res.json({
+      id: updated.id,
+      name: updated.name,
+      email: updated.email,
+      position: updated.position,
+      role: updated.role,
+      isApproved: updated.isApproved
+    });
+  });
+
+  // Delete user (admin only)
+  app.delete("/api/admin/users/:id", requireAdmin, async (req, res) => {
+    const currentUser = (req as any).user;
+    if (req.params.id === currentUser.id) {
+      return res.status(400).json({ error: "Sie können sich nicht selbst löschen" });
+    }
+    
+    await storage.deleteUser(req.params.id);
+    res.status(204).send();
+  });
+
+  // === ADMIN: App Settings ===
+  
+  app.get("/api/admin/settings", async (req, res) => {
+    const settings = await storage.getAllSettings();
+    const settingsObj: Record<string, string> = {};
+    for (const s of settings) {
+      settingsObj[s.key] = s.value;
+    }
+    res.json(settingsObj);
+  });
+
+  app.put("/api/admin/settings/:key", requireAdmin, async (req, res) => {
+    const { value } = req.body;
+    const setting = await storage.setSetting(req.params.key, value);
+    res.json(setting);
+  });
+
+  // Create initial admin user if none exists
+  app.post("/api/auth/setup", async (req, res) => {
+    const users = await storage.getAllUsers();
+    if (users.length > 0) {
+      return res.status(400).json({ error: "Setup bereits abgeschlossen" });
+    }
+    
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: "Name, E-Mail und Passwort erforderlich" });
+    }
+    
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await storage.createUser({
+      username: email,
+      password: hashedPassword,
+      name,
+      email,
+      position: "Küchenchef",
+      role: "admin",
+      isApproved: true,
+    });
+    
+    req.session.userId = user.id;
+    
+    res.status(201).json({
+      message: "Admin-Konto erstellt",
+      user: { id: user.id, name: user.name, email: user.email, role: user.role }
+    });
+  });
 
   // === RECIPES ===
   app.get("/api/recipes", async (req, res) => {

@@ -1,12 +1,27 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, integer, doublePrecision, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, integer, doublePrecision, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Roles: admin (Küchenchef), souschef, koch, fruehkoch, lehrling, abwasch, guest
+// Positions: Küchenchef, Sous-Chef, Koch, Früh-Koch, Lehrling, Abwasch, Küchenhilfe, etc.
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
+  username: text("username").notNull().unique(), // email for login
   password: text("password").notNull(),
+  name: text("name").notNull().default(""),
+  email: text("email").notNull().default(""),
+  position: text("position").notNull().default("Koch"), // Küchenposition (Koch, Lehrling, Früh-Koch, Abwasch...)
+  role: text("role").notNull().default("guest"), // admin, souschef, koch, fruehkoch, lehrling, abwasch, guest
+  isApproved: boolean("is_approved").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// App settings for visibility control
+export const appSettings = pgTable("app_settings", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  value: text("value").notNull(),
 });
 
 export const recipes = pgTable("recipes", {
@@ -47,10 +62,18 @@ export const haccpLogs = pgTable("haccp_logs", {
   notes: text("notes"),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
+export const registerUserSchema = z.object({
+  name: z.string().min(2, "Name muss mindestens 2 Zeichen haben"),
+  email: z.string().email("Ungültige E-Mail-Adresse"),
+  password: z.string().min(6, "Passwort muss mindestens 6 Zeichen haben"),
+  position: z.string().min(1, "Bitte Küchenposition wählen"),
 });
+export const loginUserSchema = z.object({
+  email: z.string().email("Ungültige E-Mail-Adresse"),
+  password: z.string().min(1, "Passwort erforderlich"),
+});
+export const insertAppSettingSchema = createInsertSchema(appSettings).omit({ id: true });
 export const insertRecipeSchema = createInsertSchema(recipes).omit({ id: true });
 export const insertIngredientSchema = createInsertSchema(ingredients).omit({ id: true });
 export const insertFridgeSchema = createInsertSchema(fridges).omit({ id: true });
@@ -116,7 +139,11 @@ export const insertScheduleEntrySchema = createInsertSchema(scheduleEntries).omi
 export const insertMenuPlanSchema = createInsertSchema(menuPlans).omit({ id: true });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
+export type RegisterUser = z.infer<typeof registerUserSchema>;
+export type LoginUser = z.infer<typeof loginUserSchema>;
 export type User = typeof users.$inferSelect;
+export type AppSetting = typeof appSettings.$inferSelect;
+export type InsertAppSetting = z.infer<typeof insertAppSettingSchema>;
 export type Recipe = typeof recipes.$inferSelect;
 export type InsertRecipe = z.infer<typeof insertRecipeSchema>;
 export type Ingredient = typeof ingredients.$inferSelect;
