@@ -24,10 +24,7 @@ export default function Dashboard() {
     <div className="p-4 space-y-6">
       {/* Header with Mise Logo */}
       <header className="flex justify-between items-center mb-6">
-        <div>
-          <img src="/mise-logo.png" alt="Mise - befor Serve" className="h-12 object-contain" />
-          <p className="text-sm text-muted-foreground mt-1">{t("kitchenOverview")}</p>
-        </div>
+        <img src="/mise-logo.png" alt="Mise - befor Serve" className="h-12 object-contain" />
         <img src="/mise-icon.png" alt="Mise" className="h-10 w-10 rounded-lg shadow-sm" />
       </header>
 
