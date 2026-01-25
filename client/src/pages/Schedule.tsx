@@ -26,21 +26,25 @@ interface ScheduleEntry {
   staffId: number;
   date: string;
   type: string;
+  shiftTypeId: number | null;
   shift: string | null;
   notes: string | null;
 }
 
-const SHIFTS = [
-  { key: "early", de: "Früh", icon: "🌅" },
-  { key: "late", de: "Spät", icon: "🌆" },
-  { key: "night", de: "Nacht", icon: "🌙" },
-];
+interface ShiftType {
+  id: number;
+  name: string;
+  startTime: string;
+  endTime: string;
+  color: string;
+}
 
 const ENTRY_TYPES = [
-  { key: "shift", de: "Schicht", color: "bg-primary" },
+  { key: "shift", de: "Dienst", color: "bg-primary" },
   { key: "vacation", de: "Urlaub", color: "bg-green-500" },
   { key: "sick", de: "Krank", color: "bg-orange-500" },
   { key: "off", de: "Frei", color: "bg-gray-400" },
+  { key: "wor", de: "WOR", color: "bg-yellow-500" },
 ];
 
 function formatDate(date: Date): string {
@@ -104,6 +108,7 @@ function ScheduleView() {
   const [baseDate, setBaseDate] = useState(new Date());
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [entries, setEntries] = useState<ScheduleEntry[]>([]);
+  const [shiftTypes, setShiftTypes] = useState<ShiftType[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"day" | "week" | "month">("week");
   const { toast } = useToast();
@@ -121,14 +126,17 @@ function ScheduleView() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [staffRes, entriesRes] = await Promise.all([
+      const [staffRes, entriesRes, shiftTypesRes] = await Promise.all([
         fetch('/api/staff'),
-        fetch(`/api/schedule?start=${startDate}&end=${endDate}`)
+        fetch(`/api/schedule?start=${startDate}&end=${endDate}`),
+        fetch('/api/shift-types')
       ]);
       const staffData = await staffRes.json();
       const entriesData = await entriesRes.json();
+      const shiftTypesData = await shiftTypesRes.json();
       setStaffList(staffData);
       setEntries(entriesData);
+      setShiftTypes(shiftTypesData);
     } catch (error) {
       console.error('Failed to fetch schedule:', error);
       toast({ title: "Fehler beim Laden", variant: "destructive" });
@@ -140,6 +148,10 @@ function ScheduleView() {
   useEffect(() => {
     fetchData();
   }, [startDate, endDate]);
+  
+  const getShiftType = (id: number | null) => {
+    return shiftTypes.find(st => st.id === id);
+  };
 
   const getEntry = (staffId: number, date: string) => {
     return entries.find(e => e.staffId === staffId && e.date === date);
@@ -208,38 +220,40 @@ function ScheduleView() {
           Keine Mitarbeiter vorhanden. Bitte zuerst Mitarbeiter anlegen.
         </div>
       ) : viewMode === "month" ? (
-        <MonthScheduleView dates={dates} staffList={staffList} entries={entries} getEntry={getEntry} onSave={fetchData} />
+        <MonthScheduleView dates={dates} staffList={staffList} entries={entries} getEntry={getEntry} shiftTypes={shiftTypes} onSave={fetchData} />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+        <div className="overflow-x-auto border rounded-lg">
+          <table className="w-full text-xs border-collapse">
             <thead>
-              <tr className="border-b">
-                <th className="text-left p-2 w-24">Mitarbeiter</th>
+              <tr className="bg-yellow-100">
+                <th className="text-left p-2 border font-medium">Nr.</th>
+                <th className="text-left p-2 border font-medium min-w-[120px]">Mitarbeitername</th>
                 {dates.map((date, idx) => {
                   const isToday = formatDate(new Date()) === formatDate(date);
                   const dayIdx = date.getDay() === 0 ? 6 : date.getDay() - 1;
+                  const isWeekend = dayIdx >= 5;
                   return (
-                    <th key={idx} className={`p-1 text-center min-w-[60px] ${isToday ? 'bg-primary/10' : ''}`}>
-                      <div className="text-muted-foreground">{WEEKDAYS[dayIdx]}</div>
-                      <div className="font-bold">{date.getDate()}</div>
+                    <th key={idx} className={`p-1 text-center min-w-[70px] border ${isToday ? 'bg-primary/20' : isWeekend ? 'bg-yellow-200' : 'bg-yellow-100'}`}>
+                      <div className="text-muted-foreground text-[10px]">{WEEKDAYS[dayIdx]}</div>
+                      <div className="font-bold">{date.getDate()}.{(date.getMonth()+1).toString().padStart(2,'0')}.</div>
                     </th>
                   );
                 })}
               </tr>
             </thead>
             <tbody>
-              {staffList.map(staff => (
-                <tr key={staff.id} className="border-b">
-                  <td className="p-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: staff.color }} />
-                      <span className="font-medium truncate max-w-[80px]">{staff.name}</span>
-                    </div>
+              {staffList.map((staff, staffIdx) => (
+                <tr key={staff.id} className="border-b hover:bg-gray-50">
+                  <td className="p-2 border text-center text-muted-foreground">{staffIdx + 1}</td>
+                  <td className="p-2 border">
+                    <span className="font-medium">{staff.name}</span>
                   </td>
-                  {dates.map((date, idx) => {
+                  {dates.map((date) => {
                     const dateStr = formatDate(date);
                     const entry = getEntry(staff.id, dateStr);
                     const isToday = formatDate(new Date()) === dateStr;
+                    const dayIdx = date.getDay() === 0 ? 6 : date.getDay() - 1;
+                    const isWeekend = dayIdx >= 5;
                     
                     return (
                       <ScheduleCell 
@@ -249,6 +263,8 @@ function ScheduleView() {
                         entry={entry}
                         staffColor={staff.color}
                         isToday={isToday}
+                        isWeekend={isWeekend}
+                        shiftTypes={shiftTypes}
                         onSave={fetchData}
                       />
                     );
@@ -268,9 +284,10 @@ function ScheduleView() {
           </Badge>
         ))}
         <div className="border-l mx-2" />
-        {SHIFTS.map(shift => (
-          <Badge key={shift.key} variant="outline">
-            {shift.icon} {shift.de}
+        {shiftTypes.map(st => (
+          <Badge key={st.id} variant="outline" className="gap-1">
+            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: st.color }} />
+            {st.name}
           </Badge>
         ))}
       </div>
@@ -278,11 +295,12 @@ function ScheduleView() {
   );
 }
 
-function MonthScheduleView({ dates, staffList, entries, getEntry, onSave }: {
+function MonthScheduleView({ dates, staffList, entries, getEntry, shiftTypes, onSave }: {
   dates: Date[];
   staffList: Staff[];
   entries: ScheduleEntry[];
   getEntry: (staffId: number, date: string) => ScheduleEntry | undefined;
+  shiftTypes: ShiftType[];
   onSave: () => void;
 }) {
   const firstDayOffset = dates[0].getDay() === 0 ? 6 : dates[0].getDay() - 1;
@@ -313,6 +331,7 @@ function MonthScheduleView({ dates, staffList, entries, getEntry, onSave }: {
               isToday={isToday}
               entries={dayEntries}
               staffList={staffList}
+              shiftTypes={shiftTypes}
               onSave={onSave}
             />
           );
@@ -322,12 +341,13 @@ function MonthScheduleView({ dates, staffList, entries, getEntry, onSave }: {
   );
 }
 
-function MonthDayScheduleCell({ date, dayNum, isToday, entries, staffList, onSave }: {
+function MonthDayScheduleCell({ date, dayNum, isToday, entries, staffList, shiftTypes, onSave }: {
   date: string;
   dayNum: number;
   isToday: boolean;
   entries: ScheduleEntry[];
   staffList: Staff[];
+  shiftTypes: ShiftType[];
   onSave: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -341,10 +361,14 @@ function MonthDayScheduleCell({ date, dayNum, isToday, entries, staffList, onSav
     return staff?.name?.split(' ')[0] || '?';
   };
 
-  const getTypeIcon = (type: string, shift?: string | null) => {
-    if (type === 'shift') return SHIFTS.find(s => s.key === shift)?.icon || '📅';
+  const getTypeIcon = (type: string, shiftTypeId?: number | null) => {
+    if (type === 'shift') {
+      const st = shiftTypes.find(s => s.id === shiftTypeId);
+      return st ? `${st.startTime.substring(0,5)}` : '📅';
+    }
     if (type === 'vacation') return '🌴';
     if (type === 'sick') return '🤒';
+    if (type === 'wor') return 'WOR';
     return '✕';
   };
 
@@ -360,7 +384,7 @@ function MonthDayScheduleCell({ date, dayNum, isToday, entries, staffList, onSav
                 className="flex items-center gap-0.5 text-[7px] leading-tight px-0.5 py-0.5 rounded"
                 style={{ backgroundColor: getStaffColor(entry.staffId) + '25' }}
               >
-                <span>{getTypeIcon(entry.type, entry.shift)}</span>
+                <span>{getTypeIcon(entry.type, entry.shiftTypeId)}</span>
                 <span className="truncate font-medium" style={{ color: getStaffColor(entry.staffId) }}>
                   {getStaffName(entry.staffId)}
                 </span>
@@ -385,6 +409,7 @@ function MonthDayScheduleCell({ date, dayNum, isToday, entries, staffList, onSav
                 staff={staff}
                 date={date}
                 entry={entry}
+                shiftTypes={shiftTypes}
                 onSave={() => { setOpen(false); onSave(); }}
               />
             );
@@ -395,31 +420,36 @@ function MonthDayScheduleCell({ date, dayNum, isToday, entries, staffList, onSav
   );
 }
 
-function DayStaffRow({ staff, date, entry, onSave }: {
+function DayStaffRow({ staff, date, entry, shiftTypes, onSave }: {
   staff: Staff;
   date: string;
   entry: ScheduleEntry | undefined;
+  shiftTypes: ShiftType[];
   onSave: () => void;
 }) {
   const [type, setType] = useState(entry?.type || "shift");
-  const [shift, setShift] = useState(entry?.shift || "early");
+  const [shiftTypeId, setShiftTypeId] = useState<string>(entry?.shiftTypeId?.toString() || (shiftTypes[0]?.id?.toString() || ""));
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
 
   const handleSave = async () => {
     setSaving(true);
     try {
+      const payload = {
+        type,
+        shiftTypeId: type === 'shift' && shiftTypeId ? parseInt(shiftTypeId) : null
+      };
       if (entry) {
         await fetch(`/api/schedule/${entry.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type, shift: type === 'shift' ? shift : null })
+          body: JSON.stringify(payload)
         });
       } else {
         await fetch('/api/schedule', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ staffId: staff.id, date, type, shift: type === 'shift' ? shift : null })
+          body: JSON.stringify({ staffId: staff.id, date, ...payload })
         });
       }
       toast({ title: "Gespeichert" });
@@ -441,11 +471,11 @@ function DayStaffRow({ staff, date, entry, onSave }: {
           {ENTRY_TYPES.map(t => <SelectItem key={t.key} value={t.key}>{t.de}</SelectItem>)}
         </SelectContent>
       </Select>
-      {type === 'shift' && (
-        <Select value={shift} onValueChange={setShift}>
-          <SelectTrigger className="w-16 h-7 text-xs"><SelectValue /></SelectTrigger>
+      {type === 'shift' && shiftTypes.length > 0 && (
+        <Select value={shiftTypeId} onValueChange={setShiftTypeId}>
+          <SelectTrigger className="w-24 h-7 text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
-            {SHIFTS.map(s => <SelectItem key={s.key} value={s.key}>{s.icon}</SelectItem>)}
+            {shiftTypes.map(st => <SelectItem key={st.id} value={st.id.toString()}>{st.startTime}</SelectItem>)}
           </SelectContent>
         </Select>
       )}
@@ -456,41 +486,49 @@ function DayStaffRow({ staff, date, entry, onSave }: {
   );
 }
 
-function ScheduleCell({ staffId, date, entry, staffColor, isToday, onSave }: {
+function ScheduleCell({ staffId, date, entry, staffColor, isToday, isWeekend, shiftTypes, onSave }: {
   staffId: number;
   date: string;
   entry: ScheduleEntry | undefined;
   staffColor: string;
   isToday: boolean;
+  isWeekend?: boolean;
+  shiftTypes: ShiftType[];
   onSave: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [type, setType] = useState(entry?.type || "shift");
-  const [shift, setShift] = useState(entry?.shift || "early");
+  const [shiftTypeId, setShiftTypeId] = useState<string>(entry?.shiftTypeId?.toString() || (shiftTypes[0]?.id?.toString() || ""));
   const [notes, setNotes] = useState(entry?.notes || "");
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     setType(entry?.type || "shift");
-    setShift(entry?.shift || "early");
+    setShiftTypeId(entry?.shiftTypeId?.toString() || (shiftTypes[0]?.id?.toString() || ""));
     setNotes(entry?.notes || "");
-  }, [entry]);
+  }, [entry, shiftTypes]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
+      const payload = {
+        type,
+        shiftTypeId: type === 'shift' && shiftTypeId ? parseInt(shiftTypeId) : null,
+        notes: notes || null
+      };
+      
       if (entry) {
         await fetch(`/api/schedule/${entry.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type, shift: type === 'shift' ? shift : null, notes: notes || null })
+          body: JSON.stringify(payload)
         });
       } else {
         await fetch('/api/schedule', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ staffId, date, type, shift: type === 'shift' ? shift : null, notes: notes || null })
+          body: JSON.stringify({ staffId, date, ...payload })
         });
       }
       toast({ title: "Gespeichert" });
@@ -518,26 +556,46 @@ function ScheduleCell({ staffId, date, entry, staffColor, isToday, onSave }: {
     }
   };
 
+  const getShiftTypeInfo = (id: number | null) => {
+    return shiftTypes.find(st => st.id === id);
+  };
+
   const getDisplayContent = () => {
-    if (!entry) return <span className="text-muted-foreground">-</span>;
+    if (!entry) return <span className="text-muted-foreground text-[10px]">-</span>;
     
     if (entry.type === 'shift') {
-      const shiftInfo = SHIFTS.find(s => s.key === entry.shift);
-      return <span>{shiftInfo?.icon || '📅'}</span>;
+      const shiftType = getShiftTypeInfo(entry.shiftTypeId);
+      if (shiftType) {
+        return (
+          <div className="text-[9px] leading-tight text-center">
+            <div className="font-medium">{shiftType.startTime}-{shiftType.endTime}</div>
+          </div>
+        );
+      }
+      return <span className="text-[10px]">Dienst</span>;
     }
-    if (entry.type === 'vacation') return <Palmtree className="h-3 w-3 text-green-500" />;
-    if (entry.type === 'sick') return <Pill className="h-3 w-3 text-orange-500" />;
+    if (entry.type === 'vacation') return <span className="text-[9px] text-green-600 font-medium">Urlaub</span>;
+    if (entry.type === 'sick') return <span className="text-[9px] text-orange-600 font-medium">Krank</span>;
+    if (entry.type === 'wor') return <span className="text-[9px] text-yellow-600 font-medium">WOR</span>;
+    if (entry.type === 'off') return <span className="text-[9px] text-gray-500 font-medium">Frei</span>;
     return <X className="h-3 w-3 text-gray-400" />;
+  };
+
+  const bgColor = () => {
+    if (!entry) return isWeekend ? 'bg-yellow-50' : '';
+    if (entry.type === 'vacation') return 'bg-green-100';
+    if (entry.type === 'sick') return 'bg-orange-100';
+    if (entry.type === 'wor') return 'bg-yellow-200';
+    if (entry.type === 'off') return 'bg-gray-100';
+    if (isWeekend) return 'bg-yellow-100';
+    return '';
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <td className={`p-1 text-center cursor-pointer hover:bg-secondary/50 transition-colors ${isToday ? 'bg-primary/5' : ''}`}>
-          <div 
-            className="h-8 rounded flex items-center justify-center text-lg"
-            style={entry ? { backgroundColor: entry.type === 'shift' ? staffColor + '20' : undefined } : {}}
-          >
+        <td className={`p-1 text-center cursor-pointer hover:bg-secondary/50 transition-colors border ${isToday ? 'ring-2 ring-primary ring-inset' : ''} ${bgColor()}`}>
+          <div className="min-h-[32px] flex items-center justify-center">
             {getDisplayContent()}
           </div>
         </td>
@@ -559,14 +617,16 @@ function ScheduleCell({ staffId, date, entry, staffColor, isToday, onSave }: {
             </Select>
           </div>
           
-          {type === 'shift' && (
+          {type === 'shift' && shiftTypes.length > 0 && (
             <div className="space-y-2">
-              <Label>Schicht</Label>
-              <Select value={shift} onValueChange={setShift}>
+              <Label>Dienst</Label>
+              <Select value={shiftTypeId} onValueChange={setShiftTypeId}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {SHIFTS.map(s => (
-                    <SelectItem key={s.key} value={s.key}>{s.icon} {s.de}</SelectItem>
+                  {shiftTypes.map(st => (
+                    <SelectItem key={st.id} value={st.id.toString()}>
+                      {st.name} ({st.startTime}-{st.endTime})
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
