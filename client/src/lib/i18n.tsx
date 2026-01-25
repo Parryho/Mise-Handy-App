@@ -80,7 +80,12 @@ const TRANSLATIONS = {
       Starters: "Vorspeisen",
       Mains: "Hauptspeisen",
       Desserts: "Desserts",
-      Sides: "Beilagen"
+      Sides: "Beilagen",
+      Soups: "Suppen",
+      Salads: "Salate",
+      Drinks: "Getränke",
+      Snacks: "Snacks",
+      Breakfast: "Frühstück"
     }
   },
   en: {
@@ -139,7 +144,12 @@ const TRANSLATIONS = {
       Starters: "Starters",
       Mains: "Mains",
       Desserts: "Desserts",
-      Sides: "Sides"
+      Sides: "Sides",
+      Soups: "Soups",
+      Salads: "Salads",
+      Drinks: "Drinks",
+      Snacks: "Snacks",
+      Breakfast: "Breakfast"
     }
   }
 };

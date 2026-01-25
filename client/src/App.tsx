@@ -9,6 +9,9 @@ import Recipes from "@/pages/Recipes";
 import HACCP from "@/pages/HACCP";
 import Reports from "@/pages/Reports";
 import Settings from "@/pages/Settings";
+import Guests from "@/pages/Guests";
+import Schedule from "@/pages/Schedule";
+import MenuPlanPage from "@/pages/MenuPlan";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -18,6 +21,9 @@ function Router() {
         <Route path="/" component={Dashboard} />
         <Route path="/recipes" component={Recipes} />
         <Route path="/haccp" component={HACCP} />
+        <Route path="/guests" component={Guests} />
+        <Route path="/schedule" component={Schedule} />
+        <Route path="/menu" component={MenuPlanPage} />
         <Route path="/reports" component={Reports} />
         <Route path="/settings" component={Settings} />
         <Route component={NotFound} />

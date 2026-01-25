@@ -226,8 +226,13 @@ function AddRecipeDialog() {
                   <SelectContent>
                     <SelectItem value="Starters">{tCat("Starters")}</SelectItem>
                     <SelectItem value="Mains">{tCat("Mains")}</SelectItem>
+                    <SelectItem value="Soups">{tCat("Soups")}</SelectItem>
                     <SelectItem value="Desserts">{tCat("Desserts")}</SelectItem>
                     <SelectItem value="Sides">{tCat("Sides")}</SelectItem>
+                    <SelectItem value="Salads">{tCat("Salads")}</SelectItem>
+                    <SelectItem value="Drinks">{tCat("Drinks")}</SelectItem>
+                    <SelectItem value="Snacks">{tCat("Snacks")}</SelectItem>
+                    <SelectItem value="Breakfast">{tCat("Breakfast")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -454,8 +459,13 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
                     <SelectContent>
                       <SelectItem value="Starters">{tCat("Starters")}</SelectItem>
                       <SelectItem value="Mains">{tCat("Mains")}</SelectItem>
+                      <SelectItem value="Soups">{tCat("Soups")}</SelectItem>
                       <SelectItem value="Desserts">{tCat("Desserts")}</SelectItem>
                       <SelectItem value="Sides">{tCat("Sides")}</SelectItem>
+                      <SelectItem value="Salads">{tCat("Salads")}</SelectItem>
+                      <SelectItem value="Drinks">{tCat("Drinks")}</SelectItem>
+                      <SelectItem value="Snacks">{tCat("Snacks")}</SelectItem>
+                      <SelectItem value="Breakfast">{tCat("Breakfast")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

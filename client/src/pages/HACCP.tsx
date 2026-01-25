@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ThermometerSnowflake, History, Loader2, PlusCircle, Pencil, Trash2 } from "lucide-react";
+import { ThermometerSnowflake, History, Loader2, PlusCircle, Pencil, Trash2, Download } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 
@@ -31,8 +31,13 @@ export default function HACCP() {
         <h1 className="text-2xl font-heading font-bold">{t("haccp")}</h1>
         <div className="flex gap-2">
           <AddFridgeDialog />
-          <Button variant="outline" size="sm" className="h-8 gap-1">
-            <History className="h-3.5 w-3.5" /> {t("history")}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="h-8 gap-1"
+            onClick={() => window.open('/api/haccp-logs/export', '_blank')}
+          >
+            <Download className="h-3.5 w-3.5" /> PDF
           </Button>
         </div>
       </div>
