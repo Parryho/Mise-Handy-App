@@ -1,33 +1,47 @@
 import { useState } from "react";
-import { useApp, Recipe, Ingredient, Category } from "@/lib/store";
+import { useApp, Recipe, Ingredient } from "@/lib/store";
 import { ALLERGENS, AllergenCode, useTranslation } from "@/lib/i18n";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Search, Minus, Plus, Clock, Users, ExternalLink, PlusCircle, Link2, Loader2, Trash2, Pencil, Download, FileText, X } from "lucide-react";
+import { Search, Minus, Plus, Clock, Users, ExternalLink, PlusCircle, Link2, Loader2, Trash2, Pencil, Download, FileText, X, ArrowLeft } from "lucide-react";
 import { Dialog, DialogContent, DialogTrigger, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Checkbox } from "@/components/ui/checkbox";
+
+const CATEGORIES = [
+  { id: "Soups", label: "Suppen", image: "/categories/suppen.png" },
+  { id: "Starters", label: "Vorspeisen", image: "/categories/vorspeisen.png" },
+  { id: "Mains", label: "Hauptspeise Fleisch", image: "/categories/hauptspeise-fleisch.png" },
+  { id: "MainsVeg", label: "Hauptspeise Veg", image: "/categories/hauptspeise-veg.png" },
+  { id: "Sides", label: "Beilagen", image: "/categories/beilagen.png" },
+  { id: "Desserts", label: "Desserts", image: "/categories/desserts.png" },
+  { id: "Salads", label: "Salate", image: "/categories/salate.png" },
+  { id: "Breakfast", label: "Frühstück", image: "/categories/fruehstueck.png" },
+  { id: "Snacks", label: "Snacks", image: "/categories/snacks.png" },
+  { id: "Drinks", label: "Getränke", image: "/categories/getraenke.png" },
+];
 
 export default function Recipes() {
   const { recipes, loading } = useApp();
-  const { t, tCat, lang } = useTranslation();
-  const [search, setSearch] = useState("");
+  const { t } = useTranslation();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [selectedAllergen, setSelectedAllergen] = useState<AllergenCode | null>(null);
+  const [search, setSearch] = useState("");
 
-  const categories = Array.from(new Set(recipes.map(r => r.category)));
+  const filteredRecipes = recipes.filter(r => {
+    const matchesCategory = selectedCategory ? r.category === selectedCategory : false;
+    const matchesSearch = r.name.toLowerCase().includes(search.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
 
-  const filteredRecipes = recipes.filter(r => 
-    r.name.toLowerCase().includes(search.toLowerCase()) && 
-    (!selectedCategory || r.category === selectedCategory) &&
-    (!selectedAllergen || r.allergens.includes(selectedAllergen))
-  );
+  const recipeCounts = CATEGORIES.reduce((acc, cat) => {
+    acc[cat.id] = recipes.filter(r => r.category === cat.id).length;
+    return acc;
+  }, {} as Record<string, number>);
 
   if (loading) {
     return (
@@ -37,89 +51,96 @@ export default function Recipes() {
     );
   }
 
-  return (
-    <div className="p-4 space-y-4 pb-24">
-      <div className="sticky top-0 bg-background/95 backdrop-blur z-10 pb-2 space-y-2">
-        <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-heading font-bold">{t("recipes")}</h1>
-          <AddRecipeDialog />
-        </div>
-        <div className="relative">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input 
-            placeholder={t("searchRecipes")}
-            className="pl-9 bg-secondary/50 border-0" 
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        
-        <div className="flex flex-col gap-2">
-           <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-            <Badge 
-              variant={selectedCategory === null ? "default" : "outline"}
-              className="whitespace-nowrap cursor-pointer"
+  if (selectedCategory) {
+    const categoryInfo = CATEGORIES.find(c => c.id === selectedCategory);
+    return (
+      <div className="p-4 space-y-4 pb-24">
+        <div className="sticky top-0 bg-background/95 backdrop-blur z-10 pb-2 space-y-3">
+          <div className="flex items-center gap-3">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="shrink-0"
               onClick={() => setSelectedCategory(null)}
+              data-testid="button-back-categories"
             >
-              {t("all")}
-            </Badge>
-            {categories.map(cat => (
-              <Badge 
-                key={cat} 
-                variant={selectedCategory === cat ? "default" : "outline"}
-                className="whitespace-nowrap cursor-pointer"
-                onClick={() => setSelectedCategory(cat)}
-              >
-                {tCat(cat)}
-              </Badge>
-            ))}
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <h1 className="text-2xl font-heading font-bold">{categoryInfo?.label}</h1>
+            <div className="ml-auto">
+              <AddRecipeDialog defaultCategory={selectedCategory} />
+            </div>
           </div>
-          
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-            <span className="text-[10px] font-bold text-muted-foreground uppercase whitespace-nowrap">{t("filterByAllergen")}:</span>
-            <Badge 
-                variant={selectedAllergen === null ? "secondary" : "outline"}
-                className="whitespace-nowrap cursor-pointer text-[10px] h-5"
-                onClick={() => setSelectedAllergen(null)}
-            >
-              All
-            </Badge>
-            {Object.values(ALLERGENS).map(alg => (
-               <Badge 
-                key={alg.code} 
-                variant={selectedAllergen === alg.code ? "destructive" : "outline"}
-                className="whitespace-nowrap cursor-pointer text-[10px] h-5 px-1 font-mono"
-                onClick={() => setSelectedAllergen(selectedAllergen === alg.code ? null : alg.code)}
-              >
-                {alg.code}
-              </Badge>
-            ))}
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input 
+              placeholder={t("searchRecipes")}
+              className="pl-9 bg-secondary/50 border-0" 
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              data-testid="input-search-recipes"
+            />
           </div>
+        </div>
+
+        <div className="grid gap-4">
+          {filteredRecipes.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <p>{t("noData")}</p>
+            </div>
+          ) : (
+            filteredRecipes.map(recipe => (
+              <RecipeCard key={recipe.id} recipe={recipe} />
+            ))
+          )}
         </div>
       </div>
+    );
+  }
 
-      <div className="grid gap-4">
-        {filteredRecipes.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            <p>{t("noData")}</p>
-          </div>
-        ) : (
-          filteredRecipes.map(recipe => (
-            <RecipeCard key={recipe.id} recipe={recipe} />
-          ))
-        )}
+  return (
+    <div className="p-4 space-y-4 pb-24">
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-heading font-bold">{t("recipes")}</h1>
+        <AddRecipeDialog />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {CATEGORIES.map((category) => (
+          <button
+            key={category.id}
+            onClick={() => setSelectedCategory(category.id)}
+            className="relative aspect-square rounded-xl overflow-hidden group active:scale-[0.98] transition-transform"
+            data-testid={`category-${category.id.toLowerCase()}`}
+          >
+            <img 
+              src={category.image} 
+              alt={category.label}
+              className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+            <div className="absolute bottom-0 left-0 right-0 p-3 text-white">
+              <h3 className="font-heading font-bold text-lg leading-tight drop-shadow-md">
+                {category.label}
+              </h3>
+              <span className="text-xs text-white/80">
+                {recipeCounts[category.id] || 0} Rezepte
+              </span>
+            </div>
+          </button>
+        ))}
       </div>
     </div>
   );
 }
 
-function AddRecipeDialog() {
+function AddRecipeDialog({ defaultCategory }: { defaultCategory?: string }) {
   const { t, tCat } = useTranslation();
   const { addRecipe, importRecipe } = useApp();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [category, setCategory] = useState<string>("Mains");
+  const [category, setCategory] = useState<string>(defaultCategory || "Mains");
   const [importUrl, setImportUrl] = useState("");
   const [importing, setImporting] = useState(false);
 
@@ -224,15 +245,9 @@ function AddRecipeDialog() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Starters">{tCat("Starters")}</SelectItem>
-                    <SelectItem value="Mains">{tCat("Mains")}</SelectItem>
-                    <SelectItem value="Soups">{tCat("Soups")}</SelectItem>
-                    <SelectItem value="Desserts">{tCat("Desserts")}</SelectItem>
-                    <SelectItem value="Sides">{tCat("Sides")}</SelectItem>
-                    <SelectItem value="Salads">{tCat("Salads")}</SelectItem>
-                    <SelectItem value="Drinks">{tCat("Drinks")}</SelectItem>
-                    <SelectItem value="Snacks">{tCat("Snacks")}</SelectItem>
-                    <SelectItem value="Breakfast">{tCat("Breakfast")}</SelectItem>
+                    {CATEGORIES.map(cat => (
+                      <SelectItem key={cat.id} value={cat.id}>{cat.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -246,7 +261,7 @@ function AddRecipeDialog() {
 }
 
 function RecipeCard({ recipe }: { recipe: Recipe }) {
-  const { t, tCat, lang } = useTranslation();
+  const { t, lang } = useTranslation();
   const { deleteRecipe, updateRecipe } = useApp();
   const { toast } = useToast();
   const [portions, setPortions] = useState(recipe.portions);
@@ -256,7 +271,6 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   
-  // Edit state
   const [editName, setEditName] = useState(recipe.name);
   const [editCategory, setEditCategory] = useState(recipe.category);
   const [editPortions, setEditPortions] = useState(String(recipe.portions));
@@ -265,6 +279,8 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
   const [editAllergens, setEditAllergens] = useState<string[]>(recipe.allergens);
   const [editIngredients, setEditIngredients] = useState<Ingredient[]>([]);
   const [saving, setSaving] = useState(false);
+
+  const categoryLabel = CATEGORIES.find(c => c.id === recipe.category)?.label || recipe.category;
 
   const handleDelete = async () => {
     if (!confirm("Rezept wirklich löschen?")) return;
@@ -320,7 +336,6 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
       });
       toast({ title: "Rezept gespeichert" });
       setEditMode(false);
-      // Reload ingredients
       const res = await fetch(`/api/recipes/${recipe.id}/ingredients`);
       const data = await res.json();
       setIngredients(data);
@@ -371,7 +386,7 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
             <div className="absolute bottom-2 left-3 right-3 flex justify-between items-end text-white">
               <div>
                 <Badge variant="secondary" className="text-[10px] h-5 px-1.5 mb-1 bg-white/20 hover:bg-white/30 text-white border-0 backdrop-blur-sm">
-                  {tCat(recipe.category)}
+                  {categoryLabel}
                 </Badge>
                 <h3 className="font-heading font-bold text-lg leading-tight shadow-black drop-shadow-md">{recipe.name}</h3>
               </div>
@@ -402,13 +417,12 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
           />
           <div className="absolute inset-0 bg-gradient-to-t from-background to-transparent" />
           <div className="absolute bottom-4 left-4 right-4">
-            <Badge className="mb-2 bg-primary text-primary-foreground border-none">{tCat(recipe.category)}</Badge>
+            <Badge className="mb-2 bg-primary text-primary-foreground border-none">{categoryLabel}</Badge>
             <h2 className="text-2xl font-heading font-bold text-foreground drop-shadow-sm">{recipe.name}</h2>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Action Buttons */}
           <div className="flex gap-2 flex-wrap">
             {!editMode && (
               <>
@@ -444,7 +458,6 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
           </div>
 
           {editMode ? (
-            // EDIT MODE
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Name</Label>
@@ -457,15 +470,9 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
                   <Select value={editCategory} onValueChange={setEditCategory}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Starters">{tCat("Starters")}</SelectItem>
-                      <SelectItem value="Mains">{tCat("Mains")}</SelectItem>
-                      <SelectItem value="Soups">{tCat("Soups")}</SelectItem>
-                      <SelectItem value="Desserts">{tCat("Desserts")}</SelectItem>
-                      <SelectItem value="Sides">{tCat("Sides")}</SelectItem>
-                      <SelectItem value="Salads">{tCat("Salads")}</SelectItem>
-                      <SelectItem value="Drinks">{tCat("Drinks")}</SelectItem>
-                      <SelectItem value="Snacks">{tCat("Snacks")}</SelectItem>
-                      <SelectItem value="Breakfast">{tCat("Breakfast")}</SelectItem>
+                      {CATEGORIES.map(cat => (
+                        <SelectItem key={cat.id} value={cat.id}>{cat.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -544,9 +551,7 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
               </div>
             </div>
           ) : (
-            // VIEW MODE
             <>
-              {/* Portion Scaler */}
               <div className="flex items-center justify-between bg-secondary/30 p-3 rounded-lg border border-border">
                 <span className="font-medium text-sm flex items-center gap-2">
                   <Users className="h-4 w-4" /> {t("portions")}
@@ -558,7 +563,6 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
                 </div>
               </div>
               
-              {/* Allergen Summary */}
               <div>
                 <h3 className="text-sm font-heading font-semibold mb-2 text-muted-foreground uppercase tracking-wide">{t("allergens")}</h3>
                 <div className="flex flex-wrap gap-2">
@@ -571,7 +575,6 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
                 </div>
               </div>
 
-              {/* Ingredients */}
               <div>
                 <h3 className="text-lg font-heading font-semibold mb-3 border-b pb-1">{t("ingredients")}</h3>
                 {loadingIngredients ? (
@@ -605,7 +608,6 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
                 )}
               </div>
 
-              {/* Steps */}
               <div>
                 <h3 className="text-lg font-heading font-semibold mb-3 border-b pb-1">{t("preparation")}</h3>
                 <ol className="space-y-3">
