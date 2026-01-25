@@ -4,16 +4,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, ChevronLeft, ChevronRight, PlusCircle, Trash2, ShoppingCart, Download, ChefHat } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, Trash2, ShoppingCart, Download, FileSpreadsheet, FileText } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 interface MenuPlan {
   id: number;
   date: string;
   meal: string;
+  course: string;
   recipeId: number | null;
   portions: number;
   notes: string | null;
@@ -29,6 +31,23 @@ const MEALS = [
   { key: "breakfast", de: "Frühstück" },
   { key: "lunch", de: "Mittagessen" },
   { key: "dinner", de: "Abendessen" },
+];
+
+const LUNCH_COURSES = [
+  { key: "soup", de: "Suppe", category: "Soups" },
+  { key: "main_meat", de: "Hauptspeise (Fleisch)", category: "Mains" },
+  { key: "side1", de: "Beilage 1", category: "Sides" },
+  { key: "side2", de: "Beilage 2", category: "Sides" },
+  { key: "main_veg", de: "Hauptspeise (Vegetarisch)", category: "Mains" },
+  { key: "dessert", de: "Dessert", category: "Desserts" },
+];
+
+const DINNER_COURSES = [
+  { key: "soup", de: "Suppe", category: "Soups" },
+  { key: "main_meat", de: "Hauptspeise (Fleisch)", category: "Mains" },
+  { key: "side1", de: "Beilage 1", category: "Sides" },
+  { key: "main_veg", de: "Hauptspeise (Vegetarisch)", category: "Mains" },
+  { key: "dessert", de: "Dessert", category: "Desserts" },
 ];
 
 function formatDate(date: Date): string {
@@ -80,8 +99,8 @@ export default function MenuPlan() {
     fetchPlans();
   }, [startDate, endDate]);
 
-  const getPlan = (date: string, meal: string) => {
-    return plans.find(p => p.date === date && p.meal === meal);
+  const getPlan = (date: string, meal: string, course: string) => {
+    return plans.find(p => p.date === date && p.meal === meal && p.course === course);
   };
 
   const getRecipeName = (id: number | null) => {
@@ -101,6 +120,12 @@ export default function MenuPlan() {
     setBaseDate(d);
   };
 
+  const getCoursesForMeal = (meal: string) => {
+    if (meal === 'lunch') return LUNCH_COURSES;
+    if (meal === 'dinner') return DINNER_COURSES;
+    return [{ key: "main", de: "Gericht", category: null }];
+  };
+
   return (
     <div className="p-4 space-y-4 pb-24">
       <div className="flex justify-between items-center">
@@ -109,9 +134,24 @@ export default function MenuPlan() {
           <Button variant="outline" size="sm" className="gap-1" onClick={() => setShowShoppingList(true)}>
             <ShoppingCart className="h-4 w-4" /> Liste
           </Button>
-          <Button variant="outline" size="sm" className="gap-1" onClick={() => window.open(`/api/menu-plans/export?start=${startDate}&end=${endDate}`, '_blank')}>
-            <Download className="h-4 w-4" /> PDF
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1">
+                <Download className="h-4 w-4" /> Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={() => window.open(`/api/menu-plans/export?start=${startDate}&end=${endDate}&format=pdf`, '_blank')}>
+                <Download className="h-4 w-4 mr-2" /> PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => window.open(`/api/menu-plans/export?start=${startDate}&end=${endDate}&format=xlsx`, '_blank')}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" /> Excel
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => window.open(`/api/menu-plans/export?start=${startDate}&end=${endDate}&format=docx`, '_blank')}>
+                <FileText className="h-4 w-4 mr-2" /> Word
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -133,38 +173,49 @@ export default function MenuPlan() {
         </div>
       ) : (
         <div className="space-y-4">
-          {MEALS.map(meal => (
-            <Card key={meal.key}>
-              <CardHeader className="py-2 px-3">
-                <CardTitle className="text-sm font-medium">{meal.de}</CardTitle>
-              </CardHeader>
-              <CardContent className="p-2">
-                <div className="grid grid-cols-7 gap-1">
-                  {weekDates.map((date, idx) => {
-                    const dateStr = formatDate(date);
-                    const plan = getPlan(dateStr, meal.key);
-                    const recipeName = plan ? getRecipeName(plan.recipeId) : null;
-                    const isToday = formatDate(new Date()) === dateStr;
-                    
-                    return (
-                      <MenuCell 
-                        key={dateStr}
-                        date={dateStr}
-                        dayName={WEEKDAYS[idx]}
-                        dayNum={date.getDate()}
-                        meal={meal.key}
-                        plan={plan}
-                        recipeName={recipeName}
-                        recipes={recipes}
-                        isToday={isToday}
-                        onSave={fetchPlans}
-                      />
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+          {MEALS.map(meal => {
+            const courses = getCoursesForMeal(meal.key);
+            return (
+              <Card key={meal.key}>
+                <CardHeader className="py-2 px-3">
+                  <CardTitle className="text-sm font-medium">{meal.de}</CardTitle>
+                </CardHeader>
+                <CardContent className="p-2 space-y-2">
+                  {courses.map(course => (
+                    <div key={course.key}>
+                      <div className="text-xs text-muted-foreground mb-1 font-medium">{course.de}</div>
+                      <div className="grid grid-cols-7 gap-1">
+                        {weekDates.map((date, idx) => {
+                          const dateStr = formatDate(date);
+                          const plan = getPlan(dateStr, meal.key, course.key);
+                          const recipeName = plan ? getRecipeName(plan.recipeId) : null;
+                          const isToday = formatDate(new Date()) === dateStr;
+                          
+                          return (
+                            <MenuCell 
+                              key={`${dateStr}-${course.key}`}
+                              date={dateStr}
+                              dayName={WEEKDAYS[idx]}
+                              dayNum={date.getDate()}
+                              meal={meal.key}
+                              course={course.key}
+                              courseCategory={course.category}
+                              plan={plan}
+                              recipeName={recipeName}
+                              recipes={recipes}
+                              isToday={isToday}
+                              onSave={fetchPlans}
+                              showDayHeader={course.key === courses[0].key}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 
@@ -178,16 +229,19 @@ export default function MenuPlan() {
   );
 }
 
-function MenuCell({ date, dayName, dayNum, meal, plan, recipeName, recipes, isToday, onSave }: {
+function MenuCell({ date, dayName, dayNum, meal, course, courseCategory, plan, recipeName, recipes, isToday, onSave, showDayHeader }: {
   date: string;
   dayName: string;
   dayNum: number;
   meal: string;
+  course: string;
+  courseCategory: string | null;
   plan: MenuPlan | undefined;
   recipeName: string | null;
   recipes: any[];
   isToday: boolean;
   onSave: () => void;
+  showDayHeader: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [recipeId, setRecipeId] = useState(plan?.recipeId ? String(plan.recipeId) : "");
@@ -199,6 +253,10 @@ function MenuCell({ date, dayName, dayNum, meal, plan, recipeName, recipes, isTo
     setRecipeId(plan?.recipeId ? String(plan.recipeId) : "");
     setPortions(String(plan?.portions || 10));
   }, [plan]);
+
+  const filteredRecipes = courseCategory 
+    ? recipes.filter(r => r.category === courseCategory || !courseCategory)
+    : recipes;
 
   const handleSave = async () => {
     setSaving(true);
@@ -218,7 +276,8 @@ function MenuCell({ date, dayName, dayNum, meal, plan, recipeName, recipes, isTo
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             date, 
-            meal, 
+            meal,
+            course,
             recipeId: recipeId && recipeId !== 'none' ? parseInt(recipeId) : null,
             portions: parseInt(portions) || 1
           })
@@ -249,24 +308,31 @@ function MenuCell({ date, dayName, dayNum, meal, plan, recipeName, recipes, isTo
     }
   };
 
+  const courseName = {
+    soup: "Suppe",
+    main_meat: "Fleisch",
+    side1: "Beilage 1",
+    side2: "Beilage 2", 
+    main_veg: "Vegetarisch",
+    dessert: "Dessert",
+    main: "Gericht"
+  }[course] || course;
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className={`p-1 rounded border text-left ${isToday ? 'border-primary bg-primary/10' : 'border-border'} hover:bg-secondary/50 transition-colors min-h-[60px]`}>
-          <div className="text-[10px] text-muted-foreground text-center">{dayName} {dayNum}</div>
+        <button className={`p-1 rounded border text-left ${isToday ? 'border-primary bg-primary/10' : 'border-border'} hover:bg-secondary/50 transition-colors min-h-[40px]`}>
+          {showDayHeader && <div className="text-[10px] text-muted-foreground text-center">{dayName} {dayNum}</div>}
           {recipeName ? (
-            <div className="text-[9px] font-medium leading-tight mt-1 line-clamp-2">{recipeName}</div>
+            <div className="text-[9px] font-medium leading-tight line-clamp-2">{recipeName}</div>
           ) : (
-            <div className="text-[10px] text-muted-foreground text-center mt-2">-</div>
-          )}
-          {plan && plan.portions > 1 && (
-            <Badge variant="secondary" className="text-[8px] h-4 px-1 mt-1">{plan.portions}P</Badge>
+            <div className="text-[10px] text-muted-foreground text-center">-</div>
           )}
         </button>
       </DialogTrigger>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>{dayName}, {dayNum}. - {meal === 'breakfast' ? 'Frühstück' : meal === 'lunch' ? 'Mittagessen' : 'Abendessen'}</DialogTitle>
+          <DialogTitle>{dayName}, {dayNum}. - {courseName}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-2">
@@ -277,11 +343,17 @@ function MenuCell({ date, dayName, dayNum, meal, plan, recipeName, recipes, isTo
               </SelectTrigger>
               <SelectContent className="max-h-60">
                 <SelectItem value="none">Kein Rezept</SelectItem>
-                {recipes.map(r => (
+                {filteredRecipes.map(r => (
                   <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
                 ))}
+                {filteredRecipes.length === 0 && (
+                  <div className="px-2 py-1 text-sm text-muted-foreground">Keine passenden Rezepte</div>
+                )}
               </SelectContent>
             </Select>
+            {courseCategory && (
+              <p className="text-xs text-muted-foreground">Zeigt nur Rezepte der Kategorie: {courseCategory}</p>
+            )}
           </div>
           
           <div className="space-y-2">
@@ -314,7 +386,6 @@ function ShoppingListDialog({ open, onOpenChange, plans, recipes }: {
 }) {
   const [ingredients, setIngredients] = useState<Map<string, { amount: number; unit: string }>>(new Map());
   const [loading, setLoading] = useState(false);
-  const { toast } = useToast();
 
   const generateList = async () => {
     setLoading(true);

@@ -103,6 +103,7 @@ export const menuPlans = pgTable("menu_plans", {
   id: serial("id").primaryKey(),
   date: text("date").notNull(), // YYYY-MM-DD
   meal: text("meal").notNull(), // breakfast, lunch, dinner
+  course: text("course").notNull().default("main"), // soup, main_meat, side1, side2, main_veg, dessert, main (for breakfast)
   recipeId: integer("recipe_id").references(() => recipes.id, { onDelete: "set null" }),
   portions: integer("portions").notNull().default(1),
   notes: text("notes"),

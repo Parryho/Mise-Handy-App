@@ -3,12 +3,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, ChevronLeft, ChevronRight, PlusCircle, Pencil, Trash2, UserPlus, Calendar, Palmtree, Pill, X } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, PlusCircle, Pencil, Trash2, UserPlus, Calendar, Palmtree, Pill, X, Download, FileSpreadsheet } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 interface Staff {
   id: number;
@@ -59,6 +61,19 @@ function getWeekDates(baseDate: Date): Date[] {
   return dates;
 }
 
+function getMonthDates(baseDate: Date): Date[] {
+  const year = baseDate.getFullYear();
+  const month = baseDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  
+  const dates: Date[] = [];
+  for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
+    dates.push(new Date(d));
+  }
+  return dates;
+}
+
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 const COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
 
@@ -69,7 +84,7 @@ export default function Schedule() {
       
       <Tabs defaultValue="schedule" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="schedule">Wochenplan</TabsTrigger>
+          <TabsTrigger value="schedule">Kalender</TabsTrigger>
           <TabsTrigger value="staff">Mitarbeiter</TabsTrigger>
         </TabsList>
         
@@ -90,11 +105,18 @@ function ScheduleView() {
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [entries, setEntries] = useState<ScheduleEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<"day" | "week" | "month">("week");
   const { toast } = useToast();
-  
-  const weekDates = getWeekDates(baseDate);
-  const startDate = formatDate(weekDates[0]);
-  const endDate = formatDate(weekDates[6]);
+
+  const getDates = () => {
+    if (viewMode === "day") return [baseDate];
+    if (viewMode === "month") return getMonthDates(baseDate);
+    return getWeekDates(baseDate);
+  };
+
+  const dates = getDates();
+  const startDate = formatDate(dates[0]);
+  const endDate = formatDate(dates[dates.length - 1]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -122,28 +144,56 @@ function ScheduleView() {
     return entries.find(e => e.staffId === staffId && e.date === date);
   };
 
-  const prevWeek = () => {
+  const navigate = (direction: number) => {
     const d = new Date(baseDate);
-    d.setDate(d.getDate() - 7);
+    if (viewMode === "day") d.setDate(d.getDate() + direction);
+    else if (viewMode === "week") d.setDate(d.getDate() + direction * 7);
+    else d.setMonth(d.getMonth() + direction);
     setBaseDate(d);
   };
 
-  const nextWeek = () => {
-    const d = new Date(baseDate);
-    d.setDate(d.getDate() + 7);
-    setBaseDate(d);
+  const getDateLabel = () => {
+    if (viewMode === "day") {
+      return baseDate.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+    }
+    if (viewMode === "month") {
+      return baseDate.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+    }
+    return `KW ${getWeekNumber(dates[0])} • ${dates[0].toLocaleDateString('de-DE', { day: '2-digit', month: 'short' })} - ${dates[dates.length - 1].toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })}`;
   };
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as any)} size="sm">
+          <ToggleGroupItem value="day">Tag</ToggleGroupItem>
+          <ToggleGroupItem value="week">Woche</ToggleGroupItem>
+          <ToggleGroupItem value="month">Monat</ToggleGroupItem>
+        </ToggleGroup>
+        
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1">
+              <Download className="h-4 w-4" /> Export
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onClick={() => window.open(`/api/schedule/export?start=${startDate}&end=${endDate}&format=pdf`, '_blank')}>
+              <Download className="h-4 w-4 mr-2" /> PDF
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => window.open(`/api/schedule/export?start=${startDate}&end=${endDate}&format=xlsx`, '_blank')}>
+              <FileSpreadsheet className="h-4 w-4 mr-2" /> Excel
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
       <div className="flex items-center justify-between">
-        <Button variant="outline" size="icon" onClick={prevWeek}>
+        <Button variant="outline" size="icon" onClick={() => navigate(-1)}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <span className="font-medium text-sm">
-          KW {getWeekNumber(weekDates[0])} • {weekDates[0].toLocaleDateString('de-DE', { day: '2-digit', month: 'short' })} - {weekDates[6].toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })}
-        </span>
-        <Button variant="outline" size="icon" onClick={nextWeek}>
+        <span className="font-medium text-sm text-center">{getDateLabel()}</span>
+        <Button variant="outline" size="icon" onClick={() => navigate(1)}>
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
@@ -156,17 +206,20 @@ function ScheduleView() {
         <div className="text-center py-8 text-muted-foreground">
           Keine Mitarbeiter vorhanden. Bitte zuerst Mitarbeiter anlegen.
         </div>
+      ) : viewMode === "month" ? (
+        <MonthScheduleView dates={dates} staffList={staffList} entries={entries} getEntry={getEntry} onSave={fetchData} />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b">
                 <th className="text-left p-2 w-24">Mitarbeiter</th>
-                {weekDates.map((date, idx) => {
+                {dates.map((date, idx) => {
                   const isToday = formatDate(new Date()) === formatDate(date);
+                  const dayIdx = date.getDay() === 0 ? 6 : date.getDay() - 1;
                   return (
                     <th key={idx} className={`p-1 text-center min-w-[60px] ${isToday ? 'bg-primary/10' : ''}`}>
-                      <div className="text-muted-foreground">{WEEKDAYS[idx]}</div>
+                      <div className="text-muted-foreground">{WEEKDAYS[dayIdx]}</div>
                       <div className="font-bold">{date.getDate()}</div>
                     </th>
                   );
@@ -182,7 +235,7 @@ function ScheduleView() {
                       <span className="font-medium truncate max-w-[80px]">{staff.name}</span>
                     </div>
                   </td>
-                  {weekDates.map((date, idx) => {
+                  {dates.map((date, idx) => {
                     const dateStr = formatDate(date);
                     const entry = getEntry(staff.id, dateStr);
                     const isToday = formatDate(new Date()) === dateStr;
@@ -220,6 +273,170 @@ function ScheduleView() {
           </Badge>
         ))}
       </div>
+    </div>
+  );
+}
+
+function MonthScheduleView({ dates, staffList, entries, getEntry, onSave }: {
+  dates: Date[];
+  staffList: Staff[];
+  entries: ScheduleEntry[];
+  getEntry: (staffId: number, date: string) => ScheduleEntry | undefined;
+  onSave: () => void;
+}) {
+  const firstDayOffset = dates[0].getDay() === 0 ? 6 : dates[0].getDay() - 1;
+
+  const getStaffForDay = (dateStr: string) => {
+    return entries.filter(e => e.date === dateStr);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-7 gap-1 text-center text-xs text-muted-foreground">
+        {WEEKDAYS.map(day => <div key={day}>{day}</div>)}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {Array(firstDayOffset).fill(null).map((_, i) => (
+          <div key={`empty-${i}`} className="h-20" />
+        ))}
+        {dates.map(date => {
+          const dateStr = formatDate(date);
+          const isToday = formatDate(new Date()) === dateStr;
+          const dayEntries = getStaffForDay(dateStr);
+          
+          return (
+            <MonthDayScheduleCell 
+              key={dateStr}
+              date={dateStr}
+              dayNum={date.getDate()}
+              isToday={isToday}
+              entries={dayEntries}
+              staffList={staffList}
+              onSave={onSave}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MonthDayScheduleCell({ date, dayNum, isToday, entries, staffList, onSave }: {
+  date: string;
+  dayNum: number;
+  isToday: boolean;
+  entries: ScheduleEntry[];
+  staffList: Staff[];
+  onSave: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const getStaffColor = (staffId: number) => {
+    return staffList.find(s => s.id === staffId)?.color || '#888';
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button className={`h-20 p-1 rounded border text-left overflow-hidden ${isToday ? 'border-primary bg-primary/10' : 'border-border'} hover:bg-secondary/50 transition-colors`}>
+          <div className="text-xs text-muted-foreground">{dayNum}</div>
+          <div className="flex flex-wrap gap-0.5 mt-1">
+            {entries.slice(0, 4).map((entry, idx) => (
+              <div 
+                key={idx} 
+                className="w-4 h-4 rounded-full flex items-center justify-center text-[8px]"
+                style={{ backgroundColor: getStaffColor(entry.staffId) + '30' }}
+              >
+                {entry.type === 'shift' && SHIFTS.find(s => s.key === entry.shift)?.icon}
+                {entry.type === 'vacation' && '🌴'}
+                {entry.type === 'sick' && '🤒'}
+                {entry.type === 'off' && '✕'}
+              </div>
+            ))}
+            {entries.length > 4 && <span className="text-[8px]">+{entries.length - 4}</span>}
+          </div>
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-w-sm max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{new Date(date).toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long' })}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2">
+          {staffList.map(staff => {
+            const entry = entries.find(e => e.staffId === staff.id);
+            return (
+              <DayStaffRow 
+                key={staff.id}
+                staff={staff}
+                date={date}
+                entry={entry}
+                onSave={() => { setOpen(false); onSave(); }}
+              />
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DayStaffRow({ staff, date, entry, onSave }: {
+  staff: Staff;
+  date: string;
+  entry: ScheduleEntry | undefined;
+  onSave: () => void;
+}) {
+  const [type, setType] = useState(entry?.type || "shift");
+  const [shift, setShift] = useState(entry?.shift || "early");
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (entry) {
+        await fetch(`/api/schedule/${entry.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type, shift: type === 'shift' ? shift : null })
+        });
+      } else {
+        await fetch('/api/schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ staffId: staff.id, date, type, shift: type === 'shift' ? shift : null })
+        });
+      }
+      toast({ title: "Gespeichert" });
+      onSave();
+    } catch (error: any) {
+      toast({ title: "Fehler", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2 p-2 border rounded">
+      <div className="w-6 h-6 rounded-full" style={{ backgroundColor: staff.color }} />
+      <span className="font-medium text-sm flex-1 truncate">{staff.name}</span>
+      <Select value={type} onValueChange={setType}>
+        <SelectTrigger className="w-20 h-7 text-xs"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {ENTRY_TYPES.map(t => <SelectItem key={t.key} value={t.key}>{t.de}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      {type === 'shift' && (
+        <Select value={shift} onValueChange={setShift}>
+          <SelectTrigger className="w-16 h-7 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {SHIFTS.map(s => <SelectItem key={s.key} value={s.key}>{s.icon}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+      <Button size="sm" className="h-7" onClick={handleSave} disabled={saving}>
+        {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : "OK"}
+      </Button>
     </div>
   );
 }
@@ -289,7 +506,6 @@ function ScheduleCell({ staffId, date, entry, staffColor, isToday, onSave }: {
   const getDisplayContent = () => {
     if (!entry) return <span className="text-muted-foreground">-</span>;
     
-    const typeInfo = ENTRY_TYPES.find(t => t.key === entry.type);
     if (entry.type === 'shift') {
       const shiftInfo = SHIFTS.find(s => s.key === entry.shift);
       return <span>{shiftInfo?.icon || '📅'}</span>;
