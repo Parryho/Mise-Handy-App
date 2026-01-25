@@ -21,6 +21,7 @@ export interface Recipe {
   steps: string[];
   allergens: AllergenCode[]; // Aggregated automatically, can be overridden
   image: string;
+  sourceUrl?: string;
 }
 
 export interface Fridge {

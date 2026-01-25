@@ -1,14 +1,16 @@
 import { useState } from "react";
-import { useApp, Recipe, Ingredient } from "@/lib/store";
+import { useApp, Recipe, Ingredient, Category } from "@/lib/store";
 import { ALLERGENS, AllergenCode, useTranslation } from "@/lib/i18n";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Filter, Minus, Plus, ChefHat, Clock, Users } from "lucide-react";
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+import { Search, Filter, Minus, Plus, ChefHat, Clock, Users, ExternalLink, PlusCircle } from "lucide-react";
+import { Dialog, DialogContent, DialogTrigger, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 export default function Recipes() {
@@ -29,7 +31,10 @@ export default function Recipes() {
   return (
     <div className="p-4 space-y-4">
       <div className="sticky top-0 bg-background/95 backdrop-blur z-10 pb-2 space-y-2">
-        <h1 className="text-2xl font-heading font-bold">{t("recipes")}</h1>
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-heading font-bold">{t("recipes")}</h1>
+          <AddRecipeDialog />
+        </div>
         <div className="relative">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input 
@@ -95,6 +100,77 @@ export default function Recipes() {
   );
 }
 
+function AddRecipeDialog() {
+  const { t, tCat } = useTranslation();
+  const { addRecipe } = useApp();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState<Category>("Mains");
+  const [sourceUrl, setSourceUrl] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newRecipe: Recipe = {
+      id: Math.random().toString(36).substr(2, 9),
+      name,
+      category,
+      sourceUrl,
+      portions: 1,
+      prepTime: 0,
+      ingredients: [],
+      steps: [],
+      allergens: [],
+      image: "https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&q=80&w=800"
+    };
+    addRecipe(newRecipe);
+    setOpen(false);
+    setName("");
+    setSourceUrl("");
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="icon" variant="outline" className="rounded-full h-10 w-10 border-primary text-primary hover:bg-primary/10">
+          <PlusCircle className="h-6 w-6" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("addRecipe")}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 pt-4">
+          <div className="space-y-2">
+            <Label>{t("recipeName")}</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="space-y-2">
+            <Label>{t("category")}</Label>
+            <Select value={category} onValueChange={(v: any) => setCategory(v)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Starters">{tCat("Starters")}</SelectItem>
+                <SelectItem value="Mains">{tCat("Mains")}</SelectItem>
+                <SelectItem value="Desserts">{tCat("Desserts")}</SelectItem>
+                <SelectItem value="Sides">{tCat("Sides")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>{t("sourceUrl")}</Label>
+            <Input type="url" value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="https://..." />
+          </div>
+          <DialogFooter className="pt-4">
+            <Button type="submit" className="w-full">{t("save")}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function RecipeCard({ recipe }: { recipe: Recipe }) {
   const { t, lang } = useTranslation();
   const [portions, setPortions] = useState(recipe.portions);
@@ -142,6 +218,14 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          {recipe.sourceUrl && (
+            <Button variant="outline" className="w-full gap-2" asChild>
+              <a href={recipe.sourceUrl} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-4 w-4" /> {t("visitWebsite")}
+              </a>
+            </Button>
+          )}
+
           {/* Portion Scaler */}
           <div className="flex items-center justify-between bg-secondary/30 p-3 rounded-lg border border-border">
             <span className="font-medium text-sm flex items-center gap-2">
