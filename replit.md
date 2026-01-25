@@ -1,8 +1,8 @@
-# ChefMate - Kitchen Management System
+# Mise - befor Serve
 
 ## Overview
 
-ChefMate is a professional kitchen management application designed for chefs and food service operations. It provides recipe management with EU allergen tracking (14 allergens per regulation 1169/2011), HACCP temperature logging for food safety compliance, and PDF report generation. The application is built as a mobile-first Progressive Web App (PWA) with bilingual support (German/English).
+Mise is a professional kitchen management application designed for chefs and food service operations. Rebranded from ChefMate with orange (#F37021) color scheme. It provides recipe management with EU allergen tracking (14 allergens per regulation 1169/2011), HACCP temperature logging for food safety compliance, and PDF report generation. The application is built as a mobile-first Progressive Web App (PWA) with bilingual support (German/English).
 
 ## User Preferences
 
