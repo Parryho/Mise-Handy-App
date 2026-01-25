@@ -5,16 +5,16 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Filter, Minus, Plus, ChefHat, Clock, Users, ExternalLink, PlusCircle } from "lucide-react";
+import { Search, Minus, Plus, Clock, Users, ExternalLink, PlusCircle, Link2, Loader2, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogTrigger, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 export default function Recipes() {
-  const { recipes } = useApp();
+  const { recipes, loading } = useApp();
   const { t, tCat, lang } = useTranslation();
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -27,6 +27,14 @@ export default function Recipes() {
     (!selectedCategory || r.category === selectedCategory) &&
     (!selectedAllergen || r.allergens.includes(selectedAllergen))
   );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-4">
@@ -92,9 +100,15 @@ export default function Recipes() {
       </div>
 
       <div className="grid gap-4 pb-20">
-        {filteredRecipes.map(recipe => (
-          <RecipeCard key={recipe.id} recipe={recipe} />
-        ))}
+        {filteredRecipes.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p>{t("noData")}</p>
+          </div>
+        ) : (
+          filteredRecipes.map(recipe => (
+            <RecipeCard key={recipe.id} recipe={recipe} />
+          ))
+        )}
       </div>
     </div>
   );
@@ -102,30 +116,58 @@ export default function Recipes() {
 
 function AddRecipeDialog() {
   const { t, tCat } = useTranslation();
-  const { addRecipe } = useApp();
+  const { addRecipe, importRecipe } = useApp();
+  const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [category, setCategory] = useState<Category>("Mains");
-  const [sourceUrl, setSourceUrl] = useState("");
+  const [category, setCategory] = useState<string>("Mains");
+  const [importUrl, setImportUrl] = useState("");
+  const [importing, setImporting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newRecipe: Recipe = {
-      id: Math.random().toString(36).substr(2, 9),
-      name,
-      category,
-      sourceUrl,
-      portions: 1,
-      prepTime: 0,
-      ingredients: [],
-      steps: [],
-      allergens: [],
-      image: "https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&q=80&w=800"
-    };
-    addRecipe(newRecipe);
-    setOpen(false);
-    setName("");
-    setSourceUrl("");
+    try {
+      await addRecipe({
+        name,
+        category,
+        portions: 1,
+        prepTime: 0,
+        image: "https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&q=80&w=800",
+        sourceUrl: null,
+        steps: [],
+        allergens: [],
+        ingredientsList: []
+      });
+      toast({ title: t("save"), description: "Recipe created successfully" });
+      setOpen(false);
+      setName("");
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const handleImport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!importUrl) return;
+    
+    setImporting(true);
+    try {
+      const recipe = await importRecipe(importUrl);
+      toast({ 
+        title: "Import erfolgreich!", 
+        description: `"${recipe.name}" wurde importiert.` 
+      });
+      setOpen(false);
+      setImportUrl("");
+    } catch (error: any) {
+      toast({ 
+        title: "Import fehlgeschlagen", 
+        description: error.message, 
+        variant: "destructive" 
+      });
+    } finally {
+      setImporting(false);
+    }
   };
 
   return (
@@ -139,33 +181,61 @@ function AddRecipeDialog() {
         <DialogHeader>
           <DialogTitle>{t("addRecipe")}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 pt-4">
-          <div className="space-y-2">
-            <Label>{t("recipeName")}</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} required />
-          </div>
-          <div className="space-y-2">
-            <Label>{t("category")}</Label>
-            <Select value={category} onValueChange={(v: any) => setCategory(v)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Starters">{tCat("Starters")}</SelectItem>
-                <SelectItem value="Mains">{tCat("Mains")}</SelectItem>
-                <SelectItem value="Desserts">{tCat("Desserts")}</SelectItem>
-                <SelectItem value="Sides">{tCat("Sides")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>{t("sourceUrl")}</Label>
-            <Input type="url" value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="https://..." />
-          </div>
-          <DialogFooter className="pt-4">
-            <Button type="submit" className="w-full">{t("save")}</Button>
-          </DialogFooter>
-        </form>
+        
+        <Tabs defaultValue="import" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="import" className="gap-2">
+              <Link2 className="h-4 w-4" /> Import
+            </TabsTrigger>
+            <TabsTrigger value="manual">Manuell</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="import" className="mt-4">
+            <form onSubmit={handleImport} className="space-y-4">
+              <div className="space-y-2">
+                <Label>Rezept-URL (z.B. Chefkoch)</Label>
+                <Input 
+                  type="url" 
+                  value={importUrl} 
+                  onChange={(e) => setImportUrl(e.target.value)} 
+                  placeholder="https://www.chefkoch.de/rezepte/..."
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  Füge einen Link zu einem Rezept ein. Die Zutaten und Schritte werden automatisch importiert.
+                </p>
+              </div>
+              <Button type="submit" className="w-full" disabled={importing || !importUrl}>
+                {importing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Link2 className="h-4 w-4 mr-2" />}
+                {importing ? "Importiere..." : "Rezept importieren"}
+              </Button>
+            </form>
+          </TabsContent>
+          
+          <TabsContent value="manual" className="mt-4">
+            <form onSubmit={handleManualSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label>{t("recipeName")}</Label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} required />
+              </div>
+              <div className="space-y-2">
+                <Label>{t("category")}</Label>
+                <Select value={category} onValueChange={setCategory}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Starters">{tCat("Starters")}</SelectItem>
+                    <SelectItem value="Mains">{tCat("Mains")}</SelectItem>
+                    <SelectItem value="Desserts">{tCat("Desserts")}</SelectItem>
+                    <SelectItem value="Sides">{tCat("Sides")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button type="submit" className="w-full">{t("save")}</Button>
+            </form>
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
@@ -173,14 +243,51 @@ function AddRecipeDialog() {
 
 function RecipeCard({ recipe }: { recipe: Recipe }) {
   const { t, lang } = useTranslation();
+  const { deleteRecipe } = useApp();
+  const { toast } = useToast();
   const [portions, setPortions] = useState(recipe.portions);
+  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  const [loadingIngredients, setLoadingIngredients] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await deleteRecipe(recipe.id);
+      toast({ title: "Rezept gelöscht", description: `"${recipe.name}" wurde entfernt.` });
+      setDialogOpen(false);
+    } catch (error: any) {
+      toast({ title: "Fehler", description: error.message, variant: "destructive" });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const loadIngredients = async () => {
+    if (ingredients.length > 0) return;
+    setLoadingIngredients(true);
+    try {
+      const res = await fetch(`/api/recipes/${recipe.id}/ingredients`);
+      const data = await res.json();
+      setIngredients(data);
+    } catch (error) {
+      console.error('Failed to load ingredients:', error);
+    } finally {
+      setLoadingIngredients(false);
+    }
+  };
 
   return (
-    <Dialog>
+    <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (open) loadIngredients(); }}>
       <DialogTrigger asChild>
         <Card className="overflow-hidden cursor-pointer hover:shadow-md transition-shadow active:scale-[0.99] border-border/50">
           <div className="relative h-32 w-full">
-            <img src={recipe.image} alt={recipe.name} className="absolute inset-0 w-full h-full object-cover" />
+            <img 
+              src={recipe.image || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&q=80&w=800"} 
+              alt={recipe.name} 
+              className="absolute inset-0 w-full h-full object-cover" 
+            />
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
             <div className="absolute bottom-2 left-3 right-3 flex justify-between items-end text-white">
               <div>
@@ -198,7 +305,7 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
             </div>
             <div className="flex gap-1">
               {recipe.allergens.length > 0 ? recipe.allergens.map(code => (
-                <span key={code} className="w-5 h-5 rounded-full bg-destructive/10 text-destructive text-[10px] flex items-center justify-center font-bold border border-destructive/20 font-mono" title={ALLERGENS[code][lang]}>
+                <span key={code} className="w-5 h-5 rounded-full bg-destructive/10 text-destructive text-[10px] flex items-center justify-center font-bold border border-destructive/20 font-mono" title={ALLERGENS[code as AllergenCode]?.[lang]}>
                   {code}
                 </span>
               )) : <span className="text-[10px] text-green-600 bg-green-50 px-1 rounded">{t("noAllergens")}</span>}
@@ -209,7 +316,11 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
       
       <DialogContent className="max-w-md h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
         <div className="relative h-48 shrink-0">
-          <img src={recipe.image} alt={recipe.name} className="w-full h-full object-cover" />
+          <img 
+            src={recipe.image || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&q=80&w=800"} 
+            alt={recipe.name} 
+            className="w-full h-full object-cover" 
+          />
           <div className="absolute inset-0 bg-gradient-to-t from-background to-transparent" />
           <div className="absolute bottom-4 left-4 right-4">
             <Badge className="mb-2 bg-primary text-primary-foreground border-none">{recipe.category}</Badge>
@@ -218,13 +329,24 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          {recipe.sourceUrl && (
-            <Button variant="outline" className="w-full gap-2" asChild>
-              <a href={recipe.sourceUrl} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="h-4 w-4" /> {t("visitWebsite")}
-              </a>
+          <div className="flex gap-2">
+            {recipe.sourceUrl && (
+              <Button variant="outline" className="flex-1 gap-2" asChild>
+                <a href={recipe.sourceUrl} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-4 w-4" /> {t("visitWebsite")}
+                </a>
+              </Button>
+            )}
+            <Button 
+              variant="destructive" 
+              size="icon"
+              onClick={handleDelete}
+              disabled={deleting}
+              data-testid={`delete-recipe-${recipe.id}`}
+            >
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
             </Button>
-          )}
+          </div>
 
           {/* Portion Scaler */}
           <div className="flex items-center justify-between bg-secondary/30 p-3 rounded-lg border border-border">
@@ -245,7 +367,7 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
                {recipe.allergens.length > 0 ? recipe.allergens.map(code => (
                  <Badge key={code} variant="destructive" className="flex items-center gap-1 font-mono">
                    <span className="font-bold bg-white/20 px-1 rounded mr-1">{code}</span>
-                   {ALLERGENS[code][lang]}
+                   {ALLERGENS[code as AllergenCode]?.[lang]}
                  </Badge>
                )) : <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">{t("noAllergens")}</Badge>}
             </div>
@@ -254,26 +376,35 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
           {/* Ingredients */}
           <div>
             <h3 className="text-lg font-heading font-semibold mb-3 border-b pb-1">{t("ingredients")}</h3>
-            <ul className="space-y-2 text-sm">
-              {recipe.ingredients.map((ing, idx) => {
-                const scaledAmount = (ing.amount / recipe.portions) * portions;
-                return (
-                  <li key={idx} className="flex justify-between items-center py-1">
-                    <span className="text-muted-foreground">{ing.name}</span>
-                    <div className="flex items-center gap-2">
-                       {ing.allergens?.map(code => (
-                          <span key={code} className="text-[10px] text-destructive font-bold px-1 border border-destructive/30 rounded font-mono" title={ALLERGENS[code][lang]}>
-                            {code}
-                          </span>
-                       ))}
-                       <span className="font-mono font-medium text-foreground">
-                         {Number.isInteger(scaledAmount) ? scaledAmount : scaledAmount.toFixed(1)} {ing.unit}
-                       </span>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+            {loadingIngredients ? (
+              <div className="flex justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {ingredients.map((ing, idx) => {
+                  const scaledAmount = (ing.amount / recipe.portions) * portions;
+                  return (
+                    <li key={idx} className="flex justify-between items-center py-1">
+                      <span className="text-muted-foreground">{ing.name}</span>
+                      <div className="flex items-center gap-2">
+                         {ing.allergens?.map(code => (
+                            <span key={code} className="text-[10px] text-destructive font-bold px-1 border border-destructive/30 rounded font-mono" title={ALLERGENS[code as AllergenCode]?.[lang]}>
+                              {code}
+                            </span>
+                         ))}
+                         <span className="font-mono font-medium text-foreground">
+                           {Number.isInteger(scaledAmount) ? scaledAmount : scaledAmount.toFixed(1)} {ing.unit}
+                         </span>
+                      </div>
+                    </li>
+                  );
+                })}
+                {ingredients.length === 0 && !loadingIngredients && (
+                  <li className="text-muted-foreground text-center py-2">{t("noData")}</li>
+                )}
+              </ul>
+            )}
           </div>
 
           {/* Steps */}
@@ -288,6 +419,9 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
                   <p className="text-sm leading-relaxed text-muted-foreground">{step}</p>
                 </li>
               ))}
+              {recipe.steps.length === 0 && (
+                <li className="text-muted-foreground text-center py-2">{t("noData")}</li>
+              )}
             </ol>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useEffect } from "react";
 // Translations
 export type Language = "de" | "en";
 
+// EU-14 Allergen codes (A-N) per regulation 1169/2011
 export const ALLERGENS = {
   A: { code: "A", de: "Glutenhaltiges Getreide", en: "Gluten" },
   B: { code: "B", de: "Krebstiere", en: "Crustaceans" },
@@ -12,12 +13,12 @@ export const ALLERGENS = {
   F: { code: "F", de: "Soja", en: "Soy" },
   G: { code: "G", de: "Milch", en: "Milk" },
   H: { code: "H", de: "Schalenfrüchte", en: "Nuts" },
-  L: { code: "L", de: "Sellerie", en: "Celery" },
-  M: { code: "M", de: "Senf", en: "Mustard" },
-  N: { code: "N", de: "Sesam", en: "Sesame" },
-  O: { code: "O", de: "Sulfite", en: "Sulphites" },
-  P: { code: "P", de: "Lupinen", en: "Lupin" },
-  R: { code: "R", de: "Weichtiere", en: "Molluscs" },
+  I: { code: "I", de: "Sellerie", en: "Celery" },
+  J: { code: "J", de: "Senf", en: "Mustard" },
+  K: { code: "K", de: "Sesam", en: "Sesame" },
+  L: { code: "L", de: "Sulfite", en: "Sulphites" },
+  M: { code: "M", de: "Lupinen", en: "Lupin" },
+  N: { code: "N", de: "Weichtiere", en: "Molluscs" },
 } as const;
 
 export type AllergenCode = keyof typeof ALLERGENS;

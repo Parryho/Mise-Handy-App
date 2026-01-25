@@ -3,18 +3,25 @@ import { useApp, Fridge } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ThermometerSnowflake, History } from "lucide-react";
+import { ThermometerSnowflake, History, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 
 export default function HACCP() {
-  const { fridges, logs } = useApp();
+  const { fridges, logs, loading } = useApp();
   const { t } = useTranslation();
   
-  // Group logs by fridge
-  const getLatestLog = (fridgeId: string) => {
+  const getLatestLog = (fridgeId: number) => {
     return logs.find(l => l.fridgeId === fridgeId);
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-6">
@@ -26,41 +33,47 @@ export default function HACCP() {
       </div>
 
       <div className="grid gap-4">
-        {fridges.map(fridge => {
-          const latest = getLatestLog(fridge.id);
-          const isWarning = latest && (latest.status === "WARNING" || latest.status === "CRITICAL");
+        {fridges.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p>{t("noData")}</p>
+          </div>
+        ) : (
+          fridges.map(fridge => {
+            const latest = getLatestLog(fridge.id);
+            const isWarning = latest && (latest.status === "WARNING" || latest.status === "CRITICAL");
 
-          return (
-            <Card key={fridge.id} className={`overflow-hidden border-l-4 ${isWarning ? 'border-l-destructive' : 'border-l-green-500'}`}>
-              <CardContent className="p-4">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="font-heading font-bold text-lg">{fridge.name}</h3>
-                    <p className="text-xs text-muted-foreground">{t("range")}: {fridge.tempMin}°C to {fridge.tempMax}°C</p>
+            return (
+              <Card key={fridge.id} className={`overflow-hidden border-l-4 ${isWarning ? 'border-l-destructive' : 'border-l-green-500'}`}>
+                <CardContent className="p-4">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h3 className="font-heading font-bold text-lg">{fridge.name}</h3>
+                      <p className="text-xs text-muted-foreground">{t("range")}: {fridge.tempMin}°C to {fridge.tempMax}°C</p>
+                    </div>
+                    <div className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 ${isWarning ? 'bg-destructive/10 text-destructive' : 'bg-green-100 text-green-700'}`}>
+                      {latest ? (
+                        <>
+                          <span className="text-lg">{latest.temperature}°C</span>
+                        </>
+                      ) : (
+                        t("noData")
+                      )}
+                    </div>
                   </div>
-                  <div className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 ${isWarning ? 'bg-destructive/10 text-destructive' : 'bg-green-100 text-green-700'}`}>
-                    {latest ? (
-                      <>
-                        <span className="text-lg">{latest.temperature}°C</span>
-                      </>
-                    ) : (
-                      t("noData")
-                    )}
-                  </div>
-                </div>
 
-                <LogDialog fridge={fridge} />
-                
-                {latest && (
-                   <div className="mt-3 pt-3 border-t text-[10px] text-muted-foreground flex justify-between">
-                     <span>{t("lastCheck")}: {new Date(latest.timestamp).toLocaleString()}</span>
-                     <span>{t("by")}: {latest.user}</span>
-                   </div>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
+                  <LogDialog fridge={fridge} />
+                  
+                  {latest && (
+                     <div className="mt-3 pt-3 border-t text-[10px] text-muted-foreground flex justify-between">
+                       <span>{t("lastCheck")}: {new Date(latest.timestamp).toLocaleString()}</span>
+                       <span>{t("by")}: {latest.user}</span>
+                     </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
       </div>
     </div>
   );
@@ -68,36 +81,48 @@ export default function HACCP() {
 
 function LogDialog({ fridge }: { fridge: Fridge }) {
   const [temp, setTemp] = useState("");
+  const [saving, setSaving] = useState(false);
   const { addLog } = useApp();
   const { t } = useTranslation();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault(); // Prevent full page reload
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     
     const val = parseFloat(temp);
     if (isNaN(val)) return;
 
-    const status = (val >= fridge.tempMin && val <= fridge.tempMax) ? "OK" : "WARNING";
+    setSaving(true);
+    try {
+      const status = (val >= fridge.tempMin && val <= fridge.tempMax) ? "OK" : "WARNING";
 
-    addLog({
-      id: Math.random().toString(),
-      fridgeId: fridge.id,
-      temperature: val,
-      timestamp: new Date().toISOString(),
-      user: "Chef User", // Mock user
-      status
-    });
+      await addLog({
+        fridgeId: fridge.id,
+        temperature: val,
+        timestamp: new Date().toISOString(),
+        user: "Chef User",
+        status,
+        notes: null
+      });
 
-    toast({
-      title: status === "OK" ? t("temperatureRecorded") : t("warningRecorded"),
-      description: `Recorded ${val}°C for ${fridge.name}`,
-      variant: status === "OK" ? "default" : "destructive",
-    });
+      toast({
+        title: status === "OK" ? t("temperatureRecorded") : t("warningRecorded"),
+        description: `Recorded ${val}°C for ${fridge.name}`,
+        variant: status === "OK" ? "default" : "destructive",
+      });
 
-    setOpen(false);
-    setTemp("");
+      setOpen(false);
+      setTemp("");
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -140,7 +165,8 @@ function LogDialog({ fridge }: { fridge: Fridge }) {
              </Button>
           </div>
           
-          <Button type="submit" className="w-full h-12 text-lg" disabled={!temp}>
+          <Button type="submit" className="w-full h-12 text-lg" disabled={!temp || saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
             {t("saveRecord")}
           </Button>
         </form>

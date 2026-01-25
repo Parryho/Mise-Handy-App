@@ -1,17 +1,24 @@
 import { useApp } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ChefHat, ThermometerSnowflake, CheckCircle2 } from "lucide-react";
+import { ChefHat, ThermometerSnowflake, CheckCircle2, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 
 export default function Dashboard() {
-  const { recipes, logs, fridges } = useApp();
+  const { recipes, logs, fridges, loading } = useApp();
   const { t } = useTranslation();
 
   const warnings = logs.filter(l => l.status === "WARNING" || l.status === "CRITICAL").length;
   const todaysLogs = logs.filter(l => new Date(l.timestamp).toDateString() === new Date().toDateString()).length;
-  const pendingChecks = fridges.length * 2 - todaysLogs; // Assuming 2 checks per day per fridge
+  const pendingChecks = Math.max(0, fridges.length * 2 - todaysLogs);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-6">
@@ -34,7 +41,7 @@ export default function Dashboard() {
               <ThermometerSnowflake className="h-6 w-6 opacity-80" />
               {warnings > 0 && <Badge variant="destructive" className="h-5 px-1.5">{warnings}</Badge>}
             </div>
-            <div className="text-2xl font-heading font-bold">{pendingChecks > 0 ? pendingChecks : 0}</div>
+            <div className="text-2xl font-heading font-bold">{pendingChecks}</div>
             <div className="text-xs opacity-90">{t("pendingChecks")}</div>
           </div>
         </Link>
@@ -72,20 +79,26 @@ export default function Dashboard() {
       <div>
         <h2 className="text-lg font-heading font-semibold mb-3">{t("recentActivity")}</h2>
         <div className="space-y-3">
-          {logs.slice(0, 3).map(log => (
-            <div key={log.id} className="flex items-center justify-between p-3 bg-white dark:bg-card border border-border rounded-lg text-sm">
-              <div className="flex items-center gap-3">
-                <div className={`h-2 w-2 rounded-full ${log.status === 'OK' ? 'bg-green-500' : 'bg-red-500'}`} />
-                <div>
-                  <div className="font-medium">{t("fridge")}: {log.fridgeId}</div>
-                  <div className="text-xs text-muted-foreground">{new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} • {log.user}</div>
+          {logs.length === 0 ? (
+            <div className="text-center py-6 text-muted-foreground text-sm">
+              {t("noData")}
+            </div>
+          ) : (
+            logs.slice(0, 3).map(log => (
+              <div key={log.id} className="flex items-center justify-between p-3 bg-white dark:bg-card border border-border rounded-lg text-sm">
+                <div className="flex items-center gap-3">
+                  <div className={`h-2 w-2 rounded-full ${log.status === 'OK' ? 'bg-green-500' : 'bg-red-500'}`} />
+                  <div>
+                    <div className="font-medium">{t("fridge")}: {log.fridgeId}</div>
+                    <div className="text-xs text-muted-foreground">{new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} • {log.user}</div>
+                  </div>
+                </div>
+                <div className="font-mono font-bold">
+                  {log.temperature}°C
                 </div>
               </div>
-              <div className="font-mono font-bold">
-                {log.temperature}°C
-              </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>
