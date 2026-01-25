@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useState, useEffect } from "react";
 import { AllergenCode } from "./i18n";
 
 // Types
@@ -131,10 +131,41 @@ interface AppState {
 
 const AppContext = createContext<AppState | undefined>(undefined);
 
+// Helper to load from local storage with fallback
+const loadFromStorage = <T,>(key: string, defaultVal: T): T => {
+  try {
+    const item = localStorage.getItem(key);
+    return item ? JSON.parse(item) : defaultVal;
+  } catch (e) {
+    console.error("Failed to load from storage", e);
+    return defaultVal;
+  }
+};
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [recipes, setRecipes] = useState<Recipe[]>(MOCK_RECIPES);
-  const [fridges] = useState<Fridge[]>(MOCK_FRIDGES);
-  const [logs, setLogs] = useState<HACCPLog[]>(MOCK_LOGS);
+  // Initialize state from local storage or fall back to mock data
+  const [recipes, setRecipes] = useState<Recipe[]>(() => 
+    loadFromStorage("chefmate-recipes", MOCK_RECIPES)
+  );
+  const [fridges, setFridges] = useState<Fridge[]>(() => 
+    loadFromStorage("chefmate-fridges", MOCK_FRIDGES)
+  );
+  const [logs, setLogs] = useState<HACCPLog[]>(() => 
+    loadFromStorage("chefmate-logs", MOCK_LOGS)
+  );
+
+  // Persist state changes
+  useEffect(() => {
+    localStorage.setItem("chefmate-recipes", JSON.stringify(recipes));
+  }, [recipes]);
+
+  useEffect(() => {
+    localStorage.setItem("chefmate-fridges", JSON.stringify(fridges));
+  }, [fridges]);
+
+  useEffect(() => {
+    localStorage.setItem("chefmate-logs", JSON.stringify(logs));
+  }, [logs]);
 
   const addRecipe = (recipe: Recipe) => {
     setRecipes([...recipes, recipe]);

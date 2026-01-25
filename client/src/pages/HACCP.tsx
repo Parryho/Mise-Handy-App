@@ -73,7 +73,9 @@ function LogDialog({ fridge }: { fridge: Fridge }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
 
-  const handleSubmit = () => {
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault(); // Prevent full page reload
+    
     const val = parseFloat(temp);
     if (isNaN(val)) return;
 
@@ -109,7 +111,8 @@ function LogDialog({ fridge }: { fridge: Fridge }) {
         <DialogHeader>
           <DialogTitle>{t("logCheck")}: {fridge.name}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-4">
+        
+        <form onSubmit={handleSubmit} className="space-y-4 py-4">
           <div className="flex items-center justify-center p-6 bg-secondary/20 rounded-xl border border-dashed">
             <span className="text-4xl font-mono font-bold">{temp || "--"}</span>
             <span className="text-muted-foreground ml-1">°C</span>
@@ -117,17 +120,30 @@ function LogDialog({ fridge }: { fridge: Fridge }) {
           
           <div className="grid grid-cols-3 gap-2">
              {[1, 2, 3, 4, 5, 6, 7, 8, 9, '.', 0, '-'].map(n => (
-               <Button key={n} variant="outline" className="h-12 text-lg" onClick={() => setTemp(prev => prev + n)}>
+               <Button 
+                 key={n} 
+                 type="button" 
+                 variant="outline" 
+                 className="h-12 text-lg" 
+                 onClick={() => setTemp(prev => prev + n)}
+               >
                  {n}
                </Button>
              ))}
-             <Button variant="destructive" className="col-span-3" onClick={() => setTemp("")}>{t("clear")}</Button>
+             <Button 
+               type="button" 
+               variant="destructive" 
+               className="col-span-3" 
+               onClick={() => setTemp("")}
+             >
+               {t("clear")}
+             </Button>
           </div>
           
-          <Button className="w-full h-12 text-lg" onClick={handleSubmit} disabled={!temp}>
+          <Button type="submit" className="w-full h-12 text-lg" disabled={!temp}>
             {t("saveRecord")}
           </Button>
-        </div>
+        </form>
       </DialogContent>
     </Dialog>
   );
