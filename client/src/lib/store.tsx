@@ -53,6 +53,8 @@ interface AppState {
   importRecipe: (url: string) => Promise<Recipe>;
   deleteRecipe: (id: number) => Promise<void>;
   addFridge: (fridge: Omit<Fridge, 'id'>) => Promise<Fridge>;
+  updateFridge: (id: number, fridge: Partial<Fridge>) => Promise<Fridge>;
+  deleteFridge: (id: number) => Promise<void>;
   addLog: (log: Omit<HaccpLog, 'id'>) => Promise<HaccpLog>;
   getFridgeName: (id: number) => string;
   refetch: () => Promise<void>;
@@ -148,6 +150,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return created;
   };
 
+  const updateFridge = async (id: number, fridge: Partial<Fridge>): Promise<Fridge> => {
+    const res = await fetch(`/api/fridges/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fridge)
+    });
+    const updated = await res.json();
+    await fetchAll();
+    return updated;
+  };
+
+  const deleteFridge = async (id: number): Promise<void> => {
+    await fetch(`/api/fridges/${id}`, { method: 'DELETE' });
+    await fetchAll();
+  };
+
   const addLog = async (log: Omit<HaccpLog, 'id'>): Promise<HaccpLog> => {
     const res = await fetch('/api/haccp-logs', {
       method: 'POST',
@@ -171,7 +189,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       updateRecipe,
       importRecipe,
       deleteRecipe,
-      addFridge, 
+      addFridge,
+      updateFridge,
+      deleteFridge,
       addLog, 
       getFridgeName,
       refetch: fetchAll

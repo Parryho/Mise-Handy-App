@@ -149,6 +149,19 @@ export async function registerRoutes(
     }
   });
 
+  app.put("/api/fridges/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const fridge = await storage.updateFridge(id, req.body);
+      if (!fridge) {
+        return res.status(404).json({ error: "Fridge not found" });
+      }
+      res.json(fridge);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.delete("/api/fridges/:id", async (req, res) => {
     const id = parseInt(req.params.id, 10);
     await storage.deleteFridge(id);
@@ -215,6 +228,119 @@ export async function registerRoutes(
 
       res.json({ message: "Seed data created successfully" });
     } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // === RECIPE EXPORT ===
+  app.get("/api/recipes/:id/export/:format", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const format = req.params.format;
+      const recipe = await storage.getRecipe(id);
+      
+      if (!recipe) {
+        return res.status(404).json({ error: "Recipe not found" });
+      }
+      
+      const ingredients = await storage.getIngredients(id);
+      
+      if (format === 'pdf') {
+        const PDFDocument = (await import('pdfkit')).default;
+        const doc = new PDFDocument({ margin: 50 });
+        
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${recipe.name.replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_')}.pdf"`);
+        
+        doc.pipe(res);
+        
+        doc.fontSize(24).font('Helvetica-Bold').text(recipe.name, { align: 'center' });
+        doc.moveDown();
+        doc.fontSize(12).font('Helvetica').text(`Kategorie: ${recipe.category} | Portionen: ${recipe.portions} | Zubereitungszeit: ${recipe.prepTime} Min.`);
+        doc.moveDown();
+        
+        if (recipe.allergens && recipe.allergens.length > 0) {
+          doc.fontSize(12).font('Helvetica-Bold').text('Allergene: ');
+          doc.font('Helvetica').text(recipe.allergens.join(', '));
+          doc.moveDown();
+        }
+        
+        doc.fontSize(14).font('Helvetica-Bold').text('Zutaten:');
+        doc.moveDown(0.5);
+        doc.fontSize(11).font('Helvetica');
+        for (const ing of ingredients) {
+          const allergenInfo = ing.allergens && ing.allergens.length > 0 ? ` (${ing.allergens.join(', ')})` : '';
+          doc.text(`• ${ing.amount} ${ing.unit} ${ing.name}${allergenInfo}`);
+        }
+        doc.moveDown();
+        
+        doc.fontSize(14).font('Helvetica-Bold').text('Zubereitung:');
+        doc.moveDown(0.5);
+        doc.fontSize(11).font('Helvetica');
+        recipe.steps.forEach((step, idx) => {
+          doc.text(`${idx + 1}. ${step}`);
+          doc.moveDown(0.5);
+        });
+        
+        doc.end();
+      } else if (format === 'docx') {
+        const { Document, Packer, Paragraph, TextRun, HeadingLevel, NumberFormat } = await import('docx');
+        
+        const children: any[] = [
+          new Paragraph({
+            text: recipe.name,
+            heading: HeadingLevel.HEADING_1,
+          }),
+          new Paragraph({
+            children: [
+              new TextRun({ text: `Kategorie: ${recipe.category} | Portionen: ${recipe.portions} | Zeit: ${recipe.prepTime} Min.` }),
+            ],
+          }),
+          new Paragraph({ text: '' }),
+        ];
+        
+        if (recipe.allergens && recipe.allergens.length > 0) {
+          children.push(new Paragraph({
+            children: [
+              new TextRun({ text: 'Allergene: ', bold: true }),
+              new TextRun({ text: recipe.allergens.join(', ') }),
+            ],
+          }));
+        }
+        
+        children.push(
+          new Paragraph({ text: '' }),
+          new Paragraph({ text: 'Zutaten:', heading: HeadingLevel.HEADING_2 })
+        );
+        
+        for (const ing of ingredients) {
+          const allergenInfo = ing.allergens && ing.allergens.length > 0 ? ` (${ing.allergens.join(', ')})` : '';
+          children.push(new Paragraph({ text: `• ${ing.amount} ${ing.unit} ${ing.name}${allergenInfo}` }));
+        }
+        
+        children.push(
+          new Paragraph({ text: '' }),
+          new Paragraph({ text: 'Zubereitung:', heading: HeadingLevel.HEADING_2 })
+        );
+        
+        recipe.steps.forEach((step, idx) => {
+          children.push(new Paragraph({ text: `${idx + 1}. ${step}` }));
+        });
+        
+        const doc = new Document({
+          sections: [{ children }],
+        });
+        
+        const buffer = await Packer.toBuffer(doc);
+        
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.setHeader('Content-Disposition', `attachment; filename="${recipe.name.replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_')}.docx"`);
+        res.send(buffer);
+      } else {
+        res.status(400).json({ error: "Unsupported format. Use 'pdf' or 'docx'" });
+      }
+    } catch (error: any) {
+      console.error('Export error:', error);
       res.status(500).json({ error: error.message });
     }
   });

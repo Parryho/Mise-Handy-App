@@ -9,11 +9,29 @@ interface ScrapedRecipe {
   ingredients: { name: string; amount: number; unit: string }[];
 }
 
+// Supported platforms
+const SUPPORTED_PLATFORMS = [
+  'chefkoch.de',
+  'gutekueche.at',
+  'ichkoche.at',
+  'kochrezepte.at',
+  'essen-und-trinken.de',
+  'lecker.de',
+  'kitchen-stories.com',
+  'marions-kochbuch.de'
+];
+
+export function getSupportedPlatforms(): string[] {
+  return SUPPORTED_PLATFORMS;
+}
+
 export async function scrapeRecipe(url: string): Promise<ScrapedRecipe | null> {
   try {
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8'
       }
     });
     
@@ -24,7 +42,7 @@ export async function scrapeRecipe(url: string): Promise<ScrapedRecipe | null> {
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    // Try JSON-LD first (most reliable)
+    // Try JSON-LD first (most reliable - works for most modern recipe sites)
     const jsonLd = $('script[type="application/ld+json"]').toArray();
     for (const script of jsonLd) {
       try {
@@ -38,7 +56,7 @@ export async function scrapeRecipe(url: string): Promise<ScrapedRecipe | null> {
       }
     }
 
-    // Fallback: try common selectors for Chefkoch and similar sites
+    // Fallback: try site-specific selectors
     return scrapeWithSelectors($, url);
   } catch (error) {
     console.error('Scraping error:', error);
@@ -67,7 +85,7 @@ function findRecipeInJsonLd(data: any): ScrapedRecipe | null {
 }
 
 function parseJsonLdRecipe(data: any): ScrapedRecipe {
-  const name = data.name || 'Imported Recipe';
+  const name = data.name || 'Importiertes Rezept';
   
   // Parse portions/yield
   let portions = 4;
@@ -81,12 +99,13 @@ function parseJsonLdRecipe(data: any): ScrapedRecipe {
   let prepTime = 0;
   const totalTime = data.totalTime || data.prepTime || data.cookTime;
   if (totalTime) {
-    const match = String(totalTime).match(/PT(\d+)H?(\d*)M?/i);
-    if (match) {
-      prepTime = (parseInt(match[1] || '0', 10) * 60) + parseInt(match[2] || '0', 10);
-    } else {
-      const minMatch = String(totalTime).match(/(\d+)/);
-      if (minMatch) prepTime = parseInt(minMatch[1], 10);
+    const hourMatch = String(totalTime).match(/(\d+)H/i);
+    const minMatch = String(totalTime).match(/(\d+)M/i);
+    if (hourMatch) prepTime += parseInt(hourMatch[1], 10) * 60;
+    if (minMatch) prepTime += parseInt(minMatch[1], 10);
+    if (!hourMatch && !minMatch) {
+      const simpleMatch = String(totalTime).match(/(\d+)/);
+      if (simpleMatch) prepTime = parseInt(simpleMatch[1], 10);
     }
   }
 
@@ -96,7 +115,7 @@ function parseJsonLdRecipe(data: any): ScrapedRecipe {
     if (typeof data.image === 'string') {
       image = data.image;
     } else if (Array.isArray(data.image)) {
-      image = data.image[0];
+      image = typeof data.image[0] === 'string' ? data.image[0] : data.image[0]?.url;
     } else if (data.image.url) {
       image = data.image.url;
     }
@@ -134,18 +153,24 @@ function parseJsonLdRecipe(data: any): ScrapedRecipe {
 function parseIngredientString(str: string): { name: string; amount: number; unit: string } {
   str = str.trim();
   
-  // Common patterns: "100 g Mehl", "2 EL Zucker", "1/2 Tasse Milch"
-  const match = str.match(/^([\d.,/]+)?\s*([a-zA-ZäöüÄÖÜß]+\.?)?\s*(.+)$/);
+  // Common patterns: "100 g Mehl", "2 EL Zucker", "1/2 Tasse Milch", "½ kg Kartoffeln"
+  // Handle unicode fractions
+  str = str.replace(/½/g, '0.5').replace(/¼/g, '0.25').replace(/¾/g, '0.75').replace(/⅓/g, '0.33').replace(/⅔/g, '0.67');
+  
+  const match = str.match(/^([\d.,/\s]+)?\s*([a-zA-ZäöüÄÖÜß]+\.?)?\s*(.+)$/);
   
   if (match) {
     let amount = 1;
     if (match[1]) {
+      const amountStr = match[1].trim();
       // Handle fractions like 1/2
-      if (match[1].includes('/')) {
-        const [num, denom] = match[1].split('/').map(n => parseFloat(n.replace(',', '.')));
-        amount = num / denom;
+      if (amountStr.includes('/')) {
+        const parts = amountStr.split('/').map(n => parseFloat(n.replace(',', '.')));
+        if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1]) && parts[1] !== 0) {
+          amount = parts[0] / parts[1];
+        }
       } else {
-        amount = parseFloat(match[1].replace(',', '.')) || 1;
+        amount = parseFloat(amountStr.replace(',', '.')) || 1;
       }
     }
     
@@ -159,49 +184,110 @@ function parseIngredientString(str: string): { name: string; amount: number; uni
 }
 
 function scrapeWithSelectors($: cheerio.CheerioAPI, url: string): ScrapedRecipe | null {
-  // Chefkoch specific selectors
-  if (url.includes('chefkoch.de')) {
-    const name = $('h1').first().text().trim() || 'Imported Recipe';
-    
-    // Get ingredients
+  const urlLower = url.toLowerCase();
+  
+  // GuteKueche.at specific
+  if (urlLower.includes('gutekueche.at')) {
+    const name = $('h1.recipe-title, h1').first().text().trim() || 'Importiertes Rezept';
     const ingredients: { name: string; amount: number; unit: string }[] = [];
-    $('table.ingredients td').each((i, el) => {
+    
+    $('.recipe-ingredients li, .ingredients-list li').each((_, el) => {
       const text = $(el).text().trim();
-      if (text && !text.includes(':')) {
-        const parsed = parseIngredientString(text);
-        ingredients.push(parsed);
-      }
+      if (text) ingredients.push(parseIngredientString(text));
     });
 
-    // Get steps
     const steps: string[] = [];
-    $('.ds-box p, .preparation-text').each((i, el) => {
+    $('.recipe-preparation p, .preparation-steps li').each((_, el) => {
       const text = $(el).text().trim();
-      if (text.length > 20) {
-        steps.push(text);
-      }
+      if (text.length > 10) steps.push(text);
     });
 
-    const image = $('img.ds-image, .recipe-image img').first().attr('src') || null;
+    const image = $('img.recipe-image, .recipe-main-image img').first().attr('src') || null;
 
-    return {
-      name,
-      portions: 4,
-      prepTime: 30,
-      image,
-      steps,
-      ingredients
-    };
+    return { name, portions: 4, prepTime: 30, image, steps, ingredients };
   }
 
-  // Generic fallback
-  const name = $('h1').first().text().trim() || 'Imported Recipe';
-  return {
-    name,
-    portions: 4,
-    prepTime: 30,
-    image: null,
-    steps: [],
-    ingredients: []
-  };
+  // Ichkoche.at specific
+  if (urlLower.includes('ichkoche.at')) {
+    const name = $('h1.recipe-title, h1').first().text().trim() || 'Importiertes Rezept';
+    const ingredients: { name: string; amount: number; unit: string }[] = [];
+    
+    $('.ingredient-item, .ingredients li').each((_, el) => {
+      const text = $(el).text().trim();
+      if (text) ingredients.push(parseIngredientString(text));
+    });
+
+    const steps: string[] = [];
+    $('.preparation-step, .instructions p').each((_, el) => {
+      const text = $(el).text().trim();
+      if (text.length > 10) steps.push(text);
+    });
+
+    const image = $('.recipe-image img, .main-image img').first().attr('src') || null;
+
+    return { name, portions: 4, prepTime: 30, image, steps, ingredients };
+  }
+
+  // Kochrezepte.at specific  
+  if (urlLower.includes('kochrezepte.at')) {
+    const name = $('h1').first().text().trim() || 'Importiertes Rezept';
+    const ingredients: { name: string; amount: number; unit: string }[] = [];
+    
+    $('.zutat, .ingredient').each((_, el) => {
+      const text = $(el).text().trim();
+      if (text) ingredients.push(parseIngredientString(text));
+    });
+
+    const steps: string[] = [];
+    $('.zubereitung p, .preparation p').each((_, el) => {
+      const text = $(el).text().trim();
+      if (text.length > 10) steps.push(text);
+    });
+
+    const image = $('img.rezept-bild, .recipe-image').first().attr('src') || null;
+
+    return { name, portions: 4, prepTime: 30, image, steps, ingredients };
+  }
+
+  // Chefkoch.de specific
+  if (urlLower.includes('chefkoch.de')) {
+    const name = $('h1').first().text().trim() || 'Importiertes Rezept';
+    const ingredients: { name: string; amount: number; unit: string }[] = [];
+    
+    $('table.ingredients td, .ingredients-table td').each((_, el) => {
+      const text = $(el).text().trim();
+      if (text && !text.includes(':')) {
+        ingredients.push(parseIngredientString(text));
+      }
+    });
+
+    const steps: string[] = [];
+    $('.ds-box p, .preparation-text, article.ds-box').each((_, el) => {
+      const text = $(el).text().trim();
+      if (text.length > 20) steps.push(text);
+    });
+
+    const image = $('img.ds-image, .recipe-image img, amp-img').first().attr('src') || null;
+
+    return { name, portions: 4, prepTime: 30, image, steps, ingredients };
+  }
+
+  // Generic fallback - try common selectors
+  const name = $('h1').first().text().trim() || 'Importiertes Rezept';
+  const ingredients: { name: string; amount: number; unit: string }[] = [];
+  
+  $('[class*="ingredient"] li, [class*="zutat"]').each((_, el) => {
+    const text = $(el).text().trim();
+    if (text) ingredients.push(parseIngredientString(text));
+  });
+
+  const steps: string[] = [];
+  $('[class*="instruction"] p, [class*="preparation"] p, [class*="zubereitung"] p').each((_, el) => {
+    const text = $(el).text().trim();
+    if (text.length > 10) steps.push(text);
+  });
+
+  const image = $('img[class*="recipe"], img[class*="rezept"]').first().attr('src') || null;
+
+  return { name, portions: 4, prepTime: 30, image, steps, ingredients };
 }

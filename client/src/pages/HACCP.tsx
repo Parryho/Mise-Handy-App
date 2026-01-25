@@ -3,7 +3,9 @@ import { useApp, Fridge } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ThermometerSnowflake, History, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ThermometerSnowflake, History, Loader2, PlusCircle, Pencil, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 
@@ -24,12 +26,15 @@ export default function HACCP() {
   }
 
   return (
-    <div className="p-4 space-y-6">
-      <div className="flex justify-between items-end">
+    <div className="p-4 space-y-6 pb-24">
+      <div className="flex justify-between items-center">
         <h1 className="text-2xl font-heading font-bold">{t("haccp")}</h1>
-        <Button variant="outline" size="sm" className="h-8 gap-1">
-          <History className="h-3.5 w-3.5" /> {t("history")}
-        </Button>
+        <div className="flex gap-2">
+          <AddFridgeDialog />
+          <Button variant="outline" size="sm" className="h-8 gap-1">
+            <History className="h-3.5 w-3.5" /> {t("history")}
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4">
@@ -46,15 +51,16 @@ export default function HACCP() {
               <Card key={fridge.id} className={`overflow-hidden border-l-4 ${isWarning ? 'border-l-destructive' : 'border-l-green-500'}`}>
                 <CardContent className="p-4">
                   <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h3 className="font-heading font-bold text-lg">{fridge.name}</h3>
-                      <p className="text-xs text-muted-foreground">{t("range")}: {fridge.tempMin}°C to {fridge.tempMax}°C</p>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-heading font-bold text-lg">{fridge.name}</h3>
+                        <EditFridgeDialog fridge={fridge} />
+                      </div>
+                      <p className="text-xs text-muted-foreground">{t("range")}: {fridge.tempMin}°C bis {fridge.tempMax}°C</p>
                     </div>
                     <div className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 ${isWarning ? 'bg-destructive/10 text-destructive' : 'bg-green-100 text-green-700'}`}>
                       {latest ? (
-                        <>
-                          <span className="text-lg">{latest.temperature}°C</span>
-                        </>
+                        <span className="text-lg">{latest.temperature}°C</span>
                       ) : (
                         t("noData")
                       )}
@@ -76,6 +82,157 @@ export default function HACCP() {
         )}
       </div>
     </div>
+  );
+}
+
+function AddFridgeDialog() {
+  const { addFridge } = useApp();
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [tempMin, setTempMin] = useState("");
+  const [tempMax, setTempMax] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await addFridge({
+        name,
+        tempMin: parseFloat(tempMin),
+        tempMax: parseFloat(tempMax)
+      });
+      toast({ title: "Kühlgerät hinzugefügt" });
+      setOpen(false);
+      setName("");
+      setTempMin("");
+      setTempMax("");
+    } catch (error: any) {
+      toast({ title: "Fehler", description: error.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="icon" variant="outline" className="h-8 w-8">
+          <PlusCircle className="h-4 w-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Kühlgerät hinzufügen</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="z.B. Kühlschrank 1" required />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Min. Temperatur (°C)</Label>
+              <Input type="number" step="0.1" value={tempMin} onChange={(e) => setTempMin(e.target.value)} placeholder="0" required />
+            </div>
+            <div className="space-y-2">
+              <Label>Max. Temperatur (°C)</Label>
+              <Input type="number" step="0.1" value={tempMax} onChange={(e) => setTempMax(e.target.value)} placeholder="4" required />
+            </div>
+          </div>
+          <Button type="submit" className="w-full" disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            {t("save")}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditFridgeDialog({ fridge }: { fridge: Fridge }) {
+  const { updateFridge, deleteFridge } = useApp();
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(fridge.name);
+  const [tempMin, setTempMin] = useState(String(fridge.tempMin));
+  const [tempMax, setTempMax] = useState(String(fridge.tempMax));
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await updateFridge(fridge.id, {
+        name,
+        tempMin: parseFloat(tempMin),
+        tempMax: parseFloat(tempMax)
+      });
+      toast({ title: "Kühlgerät aktualisiert" });
+      setOpen(false);
+    } catch (error: any) {
+      toast({ title: "Fehler", description: error.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm("Kühlgerät und alle zugehörigen Logs wirklich löschen?")) return;
+    setDeleting(true);
+    try {
+      await deleteFridge(fridge.id);
+      toast({ title: "Kühlgerät gelöscht" });
+      setOpen(false);
+    } catch (error: any) {
+      toast({ title: "Fehler", description: error.message, variant: "destructive" });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="icon" variant="ghost" className="h-6 w-6">
+          <Pencil className="h-3 w-3" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Kühlgerät bearbeiten</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Min. Temperatur (°C)</Label>
+              <Input type="number" step="0.1" value={tempMin} onChange={(e) => setTempMin(e.target.value)} required />
+            </div>
+            <div className="space-y-2">
+              <Label>Max. Temperatur (°C)</Label>
+              <Input type="number" step="0.1" value={tempMax} onChange={(e) => setTempMax(e.target.value)} required />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button type="submit" className="flex-1" disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {t("save")}
+            </Button>
+            <Button type="button" variant="destructive" size="icon" onClick={handleDelete} disabled={deleting}>
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -108,7 +265,7 @@ function LogDialog({ fridge }: { fridge: Fridge }) {
 
       toast({
         title: status === "OK" ? t("temperatureRecorded") : t("warningRecorded"),
-        description: `Recorded ${val}°C for ${fridge.name}`,
+        description: `${val}°C für ${fridge.name} erfasst`,
         variant: status === "OK" ? "default" : "destructive",
       });
 
@@ -116,7 +273,7 @@ function LogDialog({ fridge }: { fridge: Fridge }) {
       setTemp("");
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: "Fehler",
         description: error.message,
         variant: "destructive",
       });
