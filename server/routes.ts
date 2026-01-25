@@ -1418,41 +1418,144 @@ export async function registerRoutes(
         return;
       }
       
-      // Default: PDF
+      // Default: PDF - Landscape table format like traditional Dienstplan
       const PDFDocument = (await import('pdfkit')).default;
-      const doc = new PDFDocument({ margin: 50, size: 'A4' });
+      const doc = new PDFDocument({ margin: 30, size: 'A4', layout: 'landscape' });
       
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="Dienstplan_${startDate}_${endDate}.pdf"`);
       
       doc.pipe(res);
       
-      doc.fontSize(20).font('Helvetica-Bold').text('Dienstplan', { align: 'center' });
-      doc.fontSize(12).font('Helvetica').text(`${startDate} bis ${endDate}`, { align: 'center' });
-      doc.moveDown(2);
+      const shiftTypes = await storage.getShiftTypes();
       
-      const dateMap = new Map<string, typeof entries>();
-      for (const entry of entries) {
-        if (!dateMap.has(entry.date)) dateMap.set(entry.date, []);
-        dateMap.get(entry.date)!.push(entry);
+      const orange = '#F37021';
+      const yellow = '#FFD700';
+      const darkGray = '#333333';
+      const lightGray = '#E5E5E5';
+      const pageWidth = 780;
+      const startX = 30;
+      const weekdays = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+      
+      // Generate all dates in range
+      const allDates: Date[] = [];
+      const current = new Date(startDate);
+      const endD = new Date(endDate);
+      while (current <= endD) {
+        allDates.push(new Date(current));
+        current.setDate(current.getDate() + 1);
       }
       
-      for (const [date, dayEntries] of Array.from(dateMap.entries()).sort()) {
-        const d = new Date(date);
-        doc.fontSize(12).font('Helvetica-Bold').text(d.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long' }));
+      // Header
+      doc.rect(0, 0, 842, 50).fill(orange);
+      doc.fillColor('white').fontSize(20).font('Helvetica-Bold').text('DIENSTPLAN', startX, 15, { align: 'center' });
+      
+      const startDStr = new Date(startDate);
+      const endDStr = new Date(endDate);
+      const dateRange = `${startDStr.toLocaleDateString('de-DE', { day: '2-digit', month: 'long' })} - ${endDStr.toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' })}`;
+      doc.fontSize(10).text(dateRange, startX, 38, { align: 'center' });
+      
+      // Table setup
+      const nameColWidth = 100;
+      const dayColWidth = Math.min(90, (pageWidth - nameColWidth) / allDates.length);
+      const rowHeight = 22;
+      let yPos = 65;
+      
+      // Table header row - Days
+      doc.fillColor(darkGray);
+      doc.rect(startX, yPos, nameColWidth, rowHeight).fill('#F0F0F0').stroke();
+      doc.fillColor(darkGray).fontSize(9).font('Helvetica-Bold').text('Mitarbeiter', startX + 5, yPos + 6);
+      
+      for (let i = 0; i < allDates.length; i++) {
+        const d = allDates[i];
+        const x = startX + nameColWidth + (i * dayColWidth);
+        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
         
-        for (const entry of dayEntries) {
-          const staffMember = staffList.find(s => s.id === entry.staffId);
-          const typeText = typeNames[entry.type] || entry.type;
-          const shiftText = entry.shift ? ` (${shiftNames[entry.shift] || entry.shift})` : '';
-          doc.fontSize(10).font('Helvetica').text(`  ${staffMember?.name || 'Unbekannt'}: ${typeText}${shiftText}`);
+        doc.rect(x, yPos, dayColWidth, rowHeight).fill(isWeekend ? yellow : '#F0F0F0').stroke();
+        doc.fillColor(darkGray).fontSize(8).font('Helvetica-Bold');
+        doc.text(`${weekdays[d.getDay()]}`, x + 2, yPos + 4, { width: dayColWidth - 4, align: 'center' });
+        doc.fontSize(7).font('Helvetica').text(`${d.getDate()}.${d.getMonth() + 1}`, x + 2, yPos + 13, { width: dayColWidth - 4, align: 'center' });
+      }
+      yPos += rowHeight;
+      
+      // Staff rows
+      for (const staff of staffList) {
+        // Name cell
+        doc.rect(startX, yPos, nameColWidth, rowHeight).fill('#FAFAFA').stroke();
+        doc.fillColor(darkGray).fontSize(8).font('Helvetica-Bold').text(staff.name.split(' ')[0], startX + 5, yPos + 7);
+        
+        // Day cells
+        for (let i = 0; i < allDates.length; i++) {
+          const d = allDates[i];
+          const dateStr = d.toISOString().split('T')[0];
+          const x = startX + nameColWidth + (i * dayColWidth);
+          const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+          
+          const entry = entries.find(e => e.staffId === staff.id && e.date === dateStr);
+          
+          let cellBg = isWeekend ? '#FFFACD' : 'white';
+          let cellText = '';
+          
+          if (entry) {
+            if (entry.type === 'vacation') {
+              cellBg = '#90EE90';
+              cellText = 'U';
+            } else if (entry.type === 'sick') {
+              cellBg = '#FFB6C1';
+              cellText = 'K';
+            } else if (entry.type === 'off') {
+              cellText = 'X';
+            } else if (entry.type === 'wor') {
+              cellText = 'WOR';
+            } else if (entry.type === 'shift' && entry.shiftTypeId) {
+              const st = shiftTypes.find(s => s.id === entry.shiftTypeId);
+              if (st) {
+                cellText = `${st.startTime.substring(0, 5)}`;
+              }
+            }
+          }
+          
+          doc.rect(x, yPos, dayColWidth, rowHeight).fill(cellBg).stroke();
+          if (cellText) {
+            doc.fillColor(darkGray).fontSize(7).font('Helvetica').text(cellText, x + 2, yPos + 7, { width: dayColWidth - 4, align: 'center' });
+          }
         }
-        doc.moveDown(0.5);
+        yPos += rowHeight;
+        
+        // Page break check
+        if (yPos > 520) {
+          doc.addPage();
+          yPos = 40;
+        }
       }
       
-      if (entries.length === 0) {
-        doc.fontSize(12).font('Helvetica').text('Keine Einträge im ausgewählten Zeitraum.', { align: 'center' });
+      // Legend
+      yPos += 15;
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(darkGray).text('Legende:', startX, yPos);
+      yPos += 12;
+      doc.fontSize(7).font('Helvetica');
+      const legendItems = [
+        { text: 'U = Urlaub', color: '#90EE90' },
+        { text: 'K = Krank', color: '#FFB6C1' },
+        { text: 'X = Frei', color: 'white' },
+        { text: 'WOR = Freier Tag', color: 'white' },
+      ];
+      let legendX = startX;
+      for (const item of legendItems) {
+        doc.rect(legendX, yPos, 10, 10).fill(item.color).stroke();
+        doc.fillColor(darkGray).text(item.text, legendX + 14, yPos + 1);
+        legendX += 70;
       }
+      
+      // Shift types legend
+      yPos += 15;
+      doc.text('Dienste: ', startX, yPos, { continued: true });
+      for (const st of shiftTypes) {
+        doc.text(`${st.name} (${st.startTime.substring(0,5)}-${st.endTime.substring(0,5)})  `, { continued: true });
+      }
+      
+      // Footer
+      doc.fontSize(7).fillColor('#999').text('Mise - befor Serve | Dienstplan', startX, 550, { align: 'center' });
       
       doc.end();
     } catch (error: any) {
