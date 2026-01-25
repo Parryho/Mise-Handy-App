@@ -10,8 +10,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const navItems = [
     { icon: LayoutDashboard, label: t("home"), href: "/" },
     { icon: ChefHat, label: t("recipes"), href: "/recipes" },
+    { icon: ThermometerSnowflake, label: "HACCP", href: "/haccp" },
     { icon: UtensilsCrossed, label: "Menü", href: "/menu" },
-    { icon: Users, label: "Gäste", href: "/guests" },
     { icon: CalendarDays, label: "Dienst", href: "/schedule" },
     { icon: Settings, label: t("settings"), href: "/settings" },
   ];
@@ -25,7 +25,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Bottom Navigation */}
       <nav className="fixed md:absolute bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-border/50 h-16 pb-safe z-50 md:w-full md:max-w-md md:mx-auto">
-        <div className="grid grid-cols-6 h-full">
+        <div className="grid grid-cols-6 h-full gap-0">
           {navItems.map((item) => {
             const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
             return (

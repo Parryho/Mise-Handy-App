@@ -7,11 +7,12 @@ import {
   type GuestCount, type InsertGuestCount,
   type CateringEvent, type InsertCateringEvent,
   type Staff, type InsertStaff,
+  type ShiftType, type InsertShiftType,
   type ScheduleEntry, type InsertScheduleEntry,
   type MenuPlan, type InsertMenuPlan,
   type AppSetting, type InsertAppSetting,
   users, recipes, ingredients, fridges, haccpLogs,
-  guestCounts, cateringEvents, staff, scheduleEntries, menuPlans, appSettings
+  guestCounts, cateringEvents, staff, shiftTypes, scheduleEntries, menuPlans, appSettings
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
@@ -70,6 +71,13 @@ export interface IStorage {
   createStaff(member: InsertStaff): Promise<Staff>;
   updateStaff(id: number, member: Partial<InsertStaff>): Promise<Staff | undefined>;
   deleteStaff(id: number): Promise<void>;
+
+  // Shift types (Dienste)
+  getShiftTypes(): Promise<ShiftType[]>;
+  getShiftType(id: number): Promise<ShiftType | undefined>;
+  createShiftType(shiftType: InsertShiftType): Promise<ShiftType>;
+  updateShiftType(id: number, shiftType: Partial<InsertShiftType>): Promise<ShiftType | undefined>;
+  deleteShiftType(id: number): Promise<void>;
 
   // Schedule
   getScheduleEntries(startDate: string, endDate: string): Promise<ScheduleEntry[]>;
@@ -285,6 +293,30 @@ export class DatabaseStorage implements IStorage {
 
   async deleteStaff(id: number): Promise<void> {
     await db.delete(staff).where(eq(staff.id, id));
+  }
+
+  // Shift types (Dienste)
+  async getShiftTypes(): Promise<ShiftType[]> {
+    return db.select().from(shiftTypes);
+  }
+
+  async getShiftType(id: number): Promise<ShiftType | undefined> {
+    const [shiftType] = await db.select().from(shiftTypes).where(eq(shiftTypes.id, id));
+    return shiftType;
+  }
+
+  async createShiftType(shiftType: InsertShiftType): Promise<ShiftType> {
+    const [created] = await db.insert(shiftTypes).values(shiftType).returning();
+    return created;
+  }
+
+  async updateShiftType(id: number, shiftType: Partial<InsertShiftType>): Promise<ShiftType | undefined> {
+    const [updated] = await db.update(shiftTypes).set(shiftType).where(eq(shiftTypes.id, id)).returning();
+    return updated;
+  }
+
+  async deleteShiftType(id: number): Promise<void> {
+    await db.delete(shiftTypes).where(eq(shiftTypes.id, id));
   }
 
   // Schedule

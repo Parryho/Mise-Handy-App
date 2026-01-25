@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { scrapeRecipe } from "./scraper";
 import { 
   insertRecipeSchema, insertIngredientSchema, insertFridgeSchema, insertHaccpLogSchema,
-  insertGuestCountSchema, insertCateringEventSchema, insertStaffSchema, insertScheduleEntrySchema, insertMenuPlanSchema,
+  insertGuestCountSchema, insertCateringEventSchema, insertStaffSchema, insertShiftTypeSchema, insertScheduleEntrySchema, insertMenuPlanSchema,
   registerUserSchema, loginUserSchema
 } from "@shared/schema";
 import bcrypt from "bcryptjs";
@@ -482,6 +482,29 @@ export async function registerRoutes(
       await storage.createFridge({ name: "Tiefkühler", tempMin: -22, tempMax: -18 });
       await storage.createFridge({ name: "Vorbereitungskühlschrank", tempMin: 0, tempMax: 5 });
 
+      // Seed shift types (Dienste)
+      const existingShiftTypes = await storage.getShiftTypes();
+      if (existingShiftTypes.length === 0) {
+        await storage.createShiftType({ name: "Frühstück", startTime: "06:00", endTime: "14:30", color: "#22c55e" });
+        await storage.createShiftType({ name: "Kochen Mittag", startTime: "07:00", endTime: "15:30", color: "#3b82f6" });
+        await storage.createShiftType({ name: "Kochen Mittag 2", startTime: "08:00", endTime: "16:30", color: "#8b5cf6" });
+        await storage.createShiftType({ name: "Abwasch", startTime: "08:00", endTime: "16:30", color: "#f59e0b" });
+        await storage.createShiftType({ name: "Kochen Abend", startTime: "13:00", endTime: "21:30", color: "#ef4444" });
+      }
+
+      // Seed staff members from Dienstplan image
+      const existingStaff = await storage.getStaff();
+      if (existingStaff.length === 0) {
+        await storage.createStaff({ name: "Moscher, Gerald", role: "Koch", color: "#3b82f6" });
+        await storage.createStaff({ name: "Glanzer, Patrick", role: "Koch", color: "#22c55e" });
+        await storage.createStaff({ name: "Cayli, Bugra", role: "Koch", color: "#f59e0b" });
+        await storage.createStaff({ name: "Stindl, Michael", role: "Koch", color: "#8b5cf6" });
+        await storage.createStaff({ name: "Deyab, Mona", role: "Koch", color: "#ec4899" });
+        await storage.createStaff({ name: "Enoma, Helen", role: "Koch", color: "#06b6d4" });
+        await storage.createStaff({ name: "Kononenko, Alina", role: "Koch", color: "#84cc16" });
+        await storage.createStaff({ name: "Nsiah-Youngman, Ma", role: "Koch", color: "#ef4444" });
+      }
+
       res.json({ message: "Seed data created successfully" });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -936,6 +959,39 @@ export async function registerRoutes(
   app.delete("/api/staff/:id", async (req, res) => {
     const id = parseInt(req.params.id, 10);
     await storage.deleteStaff(id);
+    res.status(204).send();
+  });
+
+  // === SHIFT TYPES (Dienste) ===
+  app.get("/api/shift-types", async (req, res) => {
+    const shiftTypes = await storage.getShiftTypes();
+    res.json(shiftTypes);
+  });
+
+  app.post("/api/shift-types", async (req, res) => {
+    try {
+      const parsed = insertShiftTypeSchema.parse(req.body);
+      const created = await storage.createShiftType(parsed);
+      res.status(201).json(created);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.put("/api/shift-types/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const updated = await storage.updateShiftType(id, req.body);
+      if (!updated) return res.status(404).json({ error: "Not found" });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/shift-types/:id", async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    await storage.deleteShiftType(id);
     res.status(204).send();
   });
 

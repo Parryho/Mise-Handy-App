@@ -77,7 +77,9 @@ export const insertAppSettingSchema = createInsertSchema(appSettings).omit({ id:
 export const insertRecipeSchema = createInsertSchema(recipes).omit({ id: true });
 export const insertIngredientSchema = createInsertSchema(ingredients).omit({ id: true });
 export const insertFridgeSchema = createInsertSchema(fridges).omit({ id: true });
-export const insertHaccpLogSchema = createInsertSchema(haccpLogs).omit({ id: true });
+export const insertHaccpLogSchema = createInsertSchema(haccpLogs).omit({ id: true }).extend({
+  timestamp: z.string().or(z.date()).transform(val => typeof val === 'string' ? new Date(val) : val),
+});
 
 // Guest counts per meal
 export const guestCounts = pgTable("guest_counts", {
@@ -111,13 +113,23 @@ export const staff = pgTable("staff", {
   phone: text("phone"),
 });
 
+// Shift types (Dienste) with times
+export const shiftTypes = pgTable("shift_types", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  startTime: text("start_time").notNull(), // HH:MM
+  endTime: text("end_time").notNull(), // HH:MM
+  color: text("color").notNull().default("#F37021"),
+});
+
 // Schedule entries (shifts and absences)
 export const scheduleEntries = pgTable("schedule_entries", {
   id: serial("id").primaryKey(),
   staffId: integer("staff_id").references(() => staff.id, { onDelete: "cascade" }).notNull(),
   date: text("date").notNull(), // YYYY-MM-DD
   type: text("type").notNull(), // shift, vacation, sick, off
-  shift: text("shift"), // early, late, night (only for type=shift)
+  shiftTypeId: integer("shift_type_id").references(() => shiftTypes.id, { onDelete: "set null" }), // reference to shift type
+  shift: text("shift"), // legacy: early, late, night (only for type=shift)
   notes: text("notes"),
 });
 
@@ -135,6 +147,7 @@ export const menuPlans = pgTable("menu_plans", {
 export const insertGuestCountSchema = createInsertSchema(guestCounts).omit({ id: true });
 export const insertCateringEventSchema = createInsertSchema(cateringEvents).omit({ id: true });
 export const insertStaffSchema = createInsertSchema(staff).omit({ id: true });
+export const insertShiftTypeSchema = createInsertSchema(shiftTypes).omit({ id: true });
 export const insertScheduleEntrySchema = createInsertSchema(scheduleEntries).omit({ id: true });
 export const insertMenuPlanSchema = createInsertSchema(menuPlans).omit({ id: true });
 
@@ -158,6 +171,8 @@ export type CateringEvent = typeof cateringEvents.$inferSelect;
 export type InsertCateringEvent = z.infer<typeof insertCateringEventSchema>;
 export type Staff = typeof staff.$inferSelect;
 export type InsertStaff = z.infer<typeof insertStaffSchema>;
+export type ShiftType = typeof shiftTypes.$inferSelect;
+export type InsertShiftType = z.infer<typeof insertShiftTypeSchema>;
 export type ScheduleEntry = typeof scheduleEntries.$inferSelect;
 export type InsertScheduleEntry = z.infer<typeof insertScheduleEntrySchema>;
 export type MenuPlan = typeof menuPlans.$inferSelect;
