@@ -1,11 +1,13 @@
 import { useApp } from "@/lib/store";
+import { useTranslation } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ChefHat, ThermometerSnowflake, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { ChefHat, ThermometerSnowflake, CheckCircle2 } from "lucide-react";
 import { Link } from "wouter";
 
 export default function Dashboard() {
   const { recipes, logs, fridges } = useApp();
+  const { t } = useTranslation();
 
   const warnings = logs.filter(l => l.status === "WARNING" || l.status === "CRITICAL").length;
   const todaysLogs = logs.filter(l => new Date(l.timestamp).toDateString() === new Date().toDateString()).length;
@@ -17,7 +19,7 @@ export default function Dashboard() {
       <header className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">ChefMate</h1>
-          <p className="text-sm text-muted-foreground">Kitchen Overview</p>
+          <p className="text-sm text-muted-foreground">{t("kitchenOverview")}</p>
         </div>
         <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
           <span className="font-heading font-bold text-primary">CM</span>
@@ -33,7 +35,7 @@ export default function Dashboard() {
               {warnings > 0 && <Badge variant="destructive" className="h-5 px-1.5">{warnings}</Badge>}
             </div>
             <div className="text-2xl font-heading font-bold">{pendingChecks > 0 ? pendingChecks : 0}</div>
-            <div className="text-xs opacity-90">Pending Temp Checks</div>
+            <div className="text-xs opacity-90">{t("pendingChecks")}</div>
           </div>
         </Link>
         
@@ -43,14 +45,14 @@ export default function Dashboard() {
               <ChefHat className="h-6 w-6 text-primary" />
             </div>
             <div className="text-2xl font-heading font-bold text-foreground">{recipes.length}</div>
-            <div className="text-xs text-muted-foreground">Active Recipes</div>
+            <div className="text-xs text-muted-foreground">{t("activeRecipes")}</div>
           </div>
         </Link>
       </div>
 
       {/* Quick Actions */}
       <div>
-        <h2 className="text-lg font-heading font-semibold mb-3">Quick Actions</h2>
+        <h2 className="text-lg font-heading font-semibold mb-3">{t("quickActions")}</h2>
         <div className="grid grid-cols-1 gap-2">
            <Link href="/haccp">
             <div className="flex items-center p-3 bg-white dark:bg-card border border-border rounded-lg shadow-sm hover:bg-secondary/50 transition-colors">
@@ -58,8 +60,8 @@ export default function Dashboard() {
                 <CheckCircle2 className="h-5 w-5" />
               </div>
               <div className="flex-1">
-                <div className="font-medium text-sm">Log Temperatures</div>
-                <div className="text-xs text-muted-foreground">Morning Check</div>
+                <div className="font-medium text-sm">{t("logTemperature")}</div>
+                <div className="text-xs text-muted-foreground">{t("morningCheck")}</div>
               </div>
             </div>
            </Link>
@@ -68,14 +70,14 @@ export default function Dashboard() {
 
       {/* Recent Activity / Status */}
       <div>
-        <h2 className="text-lg font-heading font-semibold mb-3">Kitchen Status</h2>
+        <h2 className="text-lg font-heading font-semibold mb-3">{t("recentActivity")}</h2>
         <div className="space-y-3">
           {logs.slice(0, 3).map(log => (
             <div key={log.id} className="flex items-center justify-between p-3 bg-white dark:bg-card border border-border rounded-lg text-sm">
               <div className="flex items-center gap-3">
                 <div className={`h-2 w-2 rounded-full ${log.status === 'OK' ? 'bg-green-500' : 'bg-red-500'}`} />
                 <div>
-                  <div className="font-medium">Fridge: {log.fridgeId}</div>
+                  <div className="font-medium">{t("fridge")}: {log.fridgeId}</div>
                   <div className="text-xs text-muted-foreground">{new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} • {log.user}</div>
                 </div>
               </div>

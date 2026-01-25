@@ -1,17 +1,16 @@
 import { useState } from "react";
 import { useApp, Fridge } from "@/lib/store";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useTranslation } from "@/lib/i18n";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { ThermometerSnowflake, AlertTriangle, Check, History } from "lucide-react";
+import { ThermometerSnowflake, History } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 
 export default function HACCP() {
-  const { fridges, logs, addLog } = useApp();
-  const [selectedFridge, setSelectedFridge] = useState<Fridge | null>(null);
-
+  const { fridges, logs } = useApp();
+  const { t } = useTranslation();
+  
   // Group logs by fridge
   const getLatestLog = (fridgeId: string) => {
     return logs.find(l => l.fridgeId === fridgeId);
@@ -20,9 +19,9 @@ export default function HACCP() {
   return (
     <div className="p-4 space-y-6">
       <div className="flex justify-between items-end">
-        <h1 className="text-2xl font-heading font-bold">HACCP Control</h1>
+        <h1 className="text-2xl font-heading font-bold">{t("haccp")}</h1>
         <Button variant="outline" size="sm" className="h-8 gap-1">
-          <History className="h-3.5 w-3.5" /> History
+          <History className="h-3.5 w-3.5" /> {t("history")}
         </Button>
       </div>
 
@@ -37,7 +36,7 @@ export default function HACCP() {
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h3 className="font-heading font-bold text-lg">{fridge.name}</h3>
-                    <p className="text-xs text-muted-foreground">Range: {fridge.tempMin}°C to {fridge.tempMax}°C</p>
+                    <p className="text-xs text-muted-foreground">{t("range")}: {fridge.tempMin}°C to {fridge.tempMax}°C</p>
                   </div>
                   <div className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 ${isWarning ? 'bg-destructive/10 text-destructive' : 'bg-green-100 text-green-700'}`}>
                     {latest ? (
@@ -45,7 +44,7 @@ export default function HACCP() {
                         <span className="text-lg">{latest.temperature}°C</span>
                       </>
                     ) : (
-                      "No Data"
+                      t("noData")
                     )}
                   </div>
                 </div>
@@ -54,8 +53,8 @@ export default function HACCP() {
                 
                 {latest && (
                    <div className="mt-3 pt-3 border-t text-[10px] text-muted-foreground flex justify-between">
-                     <span>Last check: {new Date(latest.timestamp).toLocaleString()}</span>
-                     <span>By: {latest.user}</span>
+                     <span>{t("lastCheck")}: {new Date(latest.timestamp).toLocaleString()}</span>
+                     <span>{t("by")}: {latest.user}</span>
                    </div>
                 )}
               </CardContent>
@@ -70,6 +69,7 @@ export default function HACCP() {
 function LogDialog({ fridge }: { fridge: Fridge }) {
   const [temp, setTemp] = useState("");
   const { addLog } = useApp();
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
 
@@ -89,7 +89,7 @@ function LogDialog({ fridge }: { fridge: Fridge }) {
     });
 
     toast({
-      title: status === "OK" ? "Temperature Recorded" : "Warning Recorded",
+      title: status === "OK" ? t("temperatureRecorded") : t("warningRecorded"),
       description: `Recorded ${val}°C for ${fridge.name}`,
       variant: status === "OK" ? "default" : "destructive",
     });
@@ -102,12 +102,12 @@ function LogDialog({ fridge }: { fridge: Fridge }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button className="w-full" variant="secondary">
-          <ThermometerSnowflake className="mr-2 h-4 w-4" /> Log Temperature
+          <ThermometerSnowflake className="mr-2 h-4 w-4" /> {t("logTemperature")}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-xs">
         <DialogHeader>
-          <DialogTitle>Log Check: {fridge.name}</DialogTitle>
+          <DialogTitle>{t("logCheck")}: {fridge.name}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="flex items-center justify-center p-6 bg-secondary/20 rounded-xl border border-dashed">
@@ -121,11 +121,11 @@ function LogDialog({ fridge }: { fridge: Fridge }) {
                  {n}
                </Button>
              ))}
-             <Button variant="destructive" className="col-span-3" onClick={() => setTemp("")}>Clear</Button>
+             <Button variant="destructive" className="col-span-3" onClick={() => setTemp("")}>{t("clear")}</Button>
           </div>
           
           <Button className="w-full h-12 text-lg" onClick={handleSubmit} disabled={!temp}>
-            Save Record
+            {t("saveRecord")}
           </Button>
         </div>
       </DialogContent>

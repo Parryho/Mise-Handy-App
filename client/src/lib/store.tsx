@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, useEffect } from "react";
-import { format } from "date-fns";
+import { createContext, useContext, useState } from "react";
+import { AllergenCode } from "./i18n";
 
 // Types
 export type Category = "Starters" | "Mains" | "Desserts" | "Sides";
@@ -8,7 +8,7 @@ export interface Ingredient {
   name: string;
   amount: number;
   unit: string;
-  allergens?: string[];
+  allergens?: AllergenCode[];
 }
 
 export interface Recipe {
@@ -19,7 +19,7 @@ export interface Recipe {
   prepTime: number; // minutes
   ingredients: Ingredient[];
   steps: string[];
-  allergens: string[];
+  allergens: AllergenCode[]; // Aggregated automatically, can be overridden
   image: string;
 }
 
@@ -49,8 +49,8 @@ const MOCK_RECIPES: Recipe[] = [
     portions: 4,
     prepTime: 25,
     ingredients: [
-      { name: "Sea Scallops", amount: 12, unit: "pcs", allergens: ["Molluscs"] },
-      { name: "Butter", amount: 50, unit: "g", allergens: ["Milk"] },
+      { name: "Sea Scallops", amount: 12, unit: "pcs", allergens: ["R"] },
+      { name: "Butter", amount: 50, unit: "g", allergens: ["G"] },
       { name: "Garlic", amount: 2, unit: "cloves" },
       { name: "Lemon", amount: 1, unit: "pc" }
     ],
@@ -60,7 +60,7 @@ const MOCK_RECIPES: Recipe[] = [
       "Heat butter in a large skillet over medium-high heat.",
       "Sear scallops for 2-3 minutes per side until golden brown."
     ],
-    allergens: ["Molluscs", "Milk"],
+    allergens: ["R", "G"],
     image: "/src/assets/images/food-1_1.jpg"
   },
   {
@@ -71,8 +71,8 @@ const MOCK_RECIPES: Recipe[] = [
     prepTime: 45,
     ingredients: [
       { name: "Rack of Lamb", amount: 1, unit: "kg" },
-      { name: "Breadcrumbs", amount: 100, unit: "g", allergens: ["Gluten"] },
-      { name: "Dijon Mustard", amount: 2, unit: "tbsp", allergens: ["Mustard"] },
+      { name: "Breadcrumbs", amount: 100, unit: "g", allergens: ["A"] },
+      { name: "Dijon Mustard", amount: 2, unit: "tbsp", allergens: ["M"] },
       { name: "Rosemary", amount: 2, unit: "sprigs" }
     ],
     steps: [
@@ -82,7 +82,7 @@ const MOCK_RECIPES: Recipe[] = [
       "Brush with mustard and coat with breadcrumbs/herbs.",
       "Roast for 20-25 minutes."
     ],
-    allergens: ["Gluten", "Mustard"],
+    allergens: ["A", "M"],
     image: "/src/assets/images/food-1_2.jpg"
   },
   {
@@ -93,8 +93,8 @@ const MOCK_RECIPES: Recipe[] = [
     prepTime: 40,
     ingredients: [
       { name: "Arborio Rice", amount: 300, unit: "g" },
-      { name: "Vegetable Stock", amount: 1, unit: "L", allergens: ["Celery"] },
-      { name: "Parmesan", amount: 50, unit: "g", allergens: ["Milk"] },
+      { name: "Vegetable Stock", amount: 1, unit: "L", allergens: ["L"] },
+      { name: "Parmesan", amount: 50, unit: "g", allergens: ["G"] },
       { name: "Truffle Oil", amount: 10, unit: "ml" }
     ],
     steps: [
@@ -103,7 +103,7 @@ const MOCK_RECIPES: Recipe[] = [
       "Gradually add warm stock, stirring constantly.",
       "Finish with parmesan and truffle oil."
     ],
-    allergens: ["Milk", "Celery"],
+    allergens: ["G", "L"],
     image: "/src/assets/images/food-1_3.jpg"
   }
 ];

@@ -8,6 +8,7 @@ import Dashboard from "@/pages/Dashboard";
 import Recipes from "@/pages/Recipes";
 import HACCP from "@/pages/HACCP";
 import Reports from "@/pages/Reports";
+import Settings from "@/pages/Settings";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -18,6 +19,7 @@ function Router() {
         <Route path="/recipes" component={Recipes} />
         <Route path="/haccp" component={HACCP} />
         <Route path="/reports" component={Reports} />
+        <Route path="/settings" component={Settings} />
         <Route component={NotFound} />
       </Switch>
     </Layout>
