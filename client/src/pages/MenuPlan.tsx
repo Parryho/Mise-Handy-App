@@ -4,12 +4,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, ChevronLeft, ChevronRight, Trash2, ShoppingCart, Download, FileSpreadsheet, FileText } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Trash2, ShoppingCart, Download, FileSpreadsheet, FileText } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface MenuPlan {
   id: number;
@@ -172,60 +173,131 @@ export default function MenuPlan() {
           <Loader2 className="h-6 w-6 animate-spin" />
         </div>
       ) : (
-        <div className="space-y-4">
-          {MEALS.map(meal => {
-            const courses = getCoursesForMeal(meal.key);
-            return (
-              <Card key={meal.key}>
-                <CardHeader className="py-2 px-3">
-                  <CardTitle className="text-sm font-medium">{meal.de}</CardTitle>
-                </CardHeader>
-                <CardContent className="p-2 space-y-2">
-                  {courses.map(course => (
-                    <div key={course.key}>
-                      <div className="text-xs text-muted-foreground mb-1 font-medium">{course.de}</div>
-                      <div className="grid grid-cols-7 gap-1">
-                        {weekDates.map((date, idx) => {
-                          const dateStr = formatDate(date);
-                          const plan = getPlan(dateStr, meal.key, course.key);
-                          const recipeName = plan ? getRecipeName(plan.recipeId) : null;
-                          const isToday = formatDate(new Date()) === dateStr;
-                          
-                          return (
-                            <MenuCell 
-                              key={`${dateStr}-${course.key}`}
-                              date={dateStr}
-                              dayName={WEEKDAYS[idx]}
-                              dayNum={date.getDate()}
-                              meal={meal.key}
-                              course={course.key}
-                              courseCategory={course.category}
-                              plan={plan}
-                              recipeName={recipeName}
-                              recipes={recipes}
-                              isToday={isToday}
-                              onSave={fetchPlans}
-                              showDayHeader={course.key === courses[0].key}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            );
-          })}
+        <div className="space-y-2">
+          {MEALS.map(meal => (
+            <MealSection 
+              key={meal.key}
+              meal={meal}
+              weekDates={weekDates}
+              plans={plans}
+              recipes={recipes}
+              getCoursesForMeal={getCoursesForMeal}
+              getPlan={getPlan}
+              getRecipeName={getRecipeName}
+              onSave={fetchPlans}
+            />
+          ))}
         </div>
       )}
 
-      <ShoppingListDialog 
-        open={showShoppingList} 
+      <ShoppingListDialog
+        open={showShoppingList}
         onOpenChange={setShowShoppingList}
         plans={plans}
         recipes={recipes}
       />
     </div>
+  );
+}
+
+function MealSection({ meal, weekDates, plans, recipes, getCoursesForMeal, getPlan, getRecipeName, onSave }: {
+  meal: { key: string; de: string };
+  weekDates: Date[];
+  plans: MenuPlan[];
+  recipes: any[];
+  getCoursesForMeal: (meal: string) => { key: string; de: string; category: string | null }[];
+  getPlan: (date: string, meal: string, course: string) => MenuPlan | undefined;
+  getRecipeName: (id: number | null) => string | null;
+  onSave: () => void;
+}) {
+  const [isOpen, setIsOpen] = useState(meal.key === 'lunch');
+  const courses = getCoursesForMeal(meal.key);
+  
+  const getMealPlansCount = () => {
+    return plans.filter(p => p.meal === meal.key && p.recipeId).length;
+  };
+
+  const getMealIcon = () => {
+    if (meal.key === 'breakfast') return '🌅';
+    if (meal.key === 'lunch') return '☀️';
+    return '🌙';
+  };
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger asChild>
+        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+          <CardHeader className="py-3 px-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">{getMealIcon()}</span>
+                <CardTitle className="text-base font-medium">{meal.de}</CardTitle>
+                {getMealPlansCount() > 0 && (
+                  <Badge variant="secondary" className="text-xs">
+                    {getMealPlansCount()} Gerichte
+                  </Badge>
+                )}
+              </div>
+              {isOpen ? (
+                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
+            </div>
+          </CardHeader>
+        </Card>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <Card className="mt-1 border-t-0 rounded-t-none">
+          <CardContent className="p-2 space-y-3">
+            <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-muted-foreground pb-1 border-b">
+              {weekDates.map((date, idx) => {
+                const isToday = formatDate(new Date()) === formatDate(date);
+                return (
+                  <div key={idx} className={isToday ? 'text-primary font-bold' : ''}>
+                    <div>{WEEKDAYS[idx]}</div>
+                    <div className="text-[10px]">{date.getDate()}</div>
+                  </div>
+                );
+              })}
+            </div>
+            {courses.map(course => (
+              <div key={course.key}>
+                <div className="text-xs text-muted-foreground mb-1 font-medium flex items-center gap-1">
+                  <span className="bg-muted px-1.5 py-0.5 rounded">{course.de}</span>
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {weekDates.map((date, idx) => {
+                    const dateStr = formatDate(date);
+                    const plan = getPlan(dateStr, meal.key, course.key);
+                    const recipeName = plan ? getRecipeName(plan.recipeId) : null;
+                    const isToday = formatDate(new Date()) === dateStr;
+                    
+                    return (
+                      <MenuCell 
+                        key={`${dateStr}-${course.key}`}
+                        date={dateStr}
+                        dayName={WEEKDAYS[idx]}
+                        dayNum={date.getDate()}
+                        meal={meal.key}
+                        course={course.key}
+                        courseCategory={course.category}
+                        plan={plan}
+                        recipeName={recipeName}
+                        recipes={recipes}
+                        isToday={isToday}
+                        onSave={onSave}
+                        showDayHeader={false}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
