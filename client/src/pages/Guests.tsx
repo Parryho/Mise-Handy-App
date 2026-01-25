@@ -117,6 +117,7 @@ function GuestCountsView() {
       setCounts(data);
     } catch (error) {
       console.error('Failed to fetch guests:', error);
+      toast({ title: "Fehler beim Laden", variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -162,15 +163,15 @@ function GuestCountsView() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
-        <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as any)} size="sm">
-          <ToggleGroupItem value="day">Tag</ToggleGroupItem>
-          <ToggleGroupItem value="week">Woche</ToggleGroupItem>
-          <ToggleGroupItem value="month">Monat</ToggleGroupItem>
+        <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as any)} size="sm" data-testid="guests-view-toggle">
+          <ToggleGroupItem value="day" data-testid="toggle-view-day">Tag</ToggleGroupItem>
+          <ToggleGroupItem value="week" data-testid="toggle-view-week">Woche</ToggleGroupItem>
+          <ToggleGroupItem value="month" data-testid="toggle-view-month">Monat</ToggleGroupItem>
         </ToggleGroup>
         
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1">
+            <Button variant="outline" size="sm" className="gap-1" data-testid="button-export">
               <Download className="h-4 w-4" /> Export
             </Button>
           </DropdownMenuTrigger>
@@ -186,11 +187,11 @@ function GuestCountsView() {
       </div>
 
       <div className="flex items-center justify-between">
-        <Button variant="outline" size="icon" onClick={() => navigate(-1)}>
+        <Button variant="outline" size="icon" onClick={() => navigate(-1)} data-testid="button-nav-prev">
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <span className="font-medium text-sm text-center">{getDateLabel()}</span>
-        <Button variant="outline" size="icon" onClick={() => navigate(1)}>
+        <span className="font-medium text-sm text-center" data-testid="text-date-label">{getDateLabel()}</span>
+        <Button variant="outline" size="icon" onClick={() => navigate(1)} data-testid="button-nav-next">
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
