@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, ChefHat, AlertCircle } from "lucide-react";
+import { Loader2, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -35,12 +35,9 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-background to-secondary/20">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="flex justify-center mb-4">
-            <div className="bg-primary/10 p-4 rounded-full">
-              <ChefHat className="h-12 w-12 text-primary" />
-            </div>
+          <div className="flex justify-center mb-2">
+            <img src="/mise-logo.png" alt="Mise - befor Serve" className="h-20 object-contain" />
           </div>
-          <CardTitle className="text-2xl font-heading">ChefMate</CardTitle>
           <CardDescription>Melden Sie sich an, um fortzufahren</CardDescription>
         </CardHeader>
         <CardContent>

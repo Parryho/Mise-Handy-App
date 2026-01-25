@@ -43,36 +43,36 @@
 }
 
 :root {
-  /* ChefMate Theme: Clean, Industrial, High Contrast */
-  /* Slate/Zinc Base with Strong Action Colors */
+  /* Mise Theme: Warm Orange Professional Kitchen */
+  /* Based on Logo Color #F37021 */
 
-  --background: 210 20% 98%; /* Very light cool grey */
-  --foreground: 222 47% 11%; /* Deep dark blue-grey */
+  --background: 30 20% 98%; /* Warm light cream */
+  --foreground: 20 20% 15%; /* Warm dark brown */
 
   --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
+  --card-foreground: 20 20% 15%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 222 47% 11%;
+  --popover-foreground: 20 20% 15%;
 
-  --primary: 221 83% 53%; /* Professional Blue */
-  --primary-foreground: 210 40% 98%;
+  --primary: 22 90% 54%; /* Mise Orange #F37021 */
+  --primary-foreground: 0 0% 100%;
 
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222 47% 11.2%;
+  --secondary: 30 30% 95%;
+  --secondary-foreground: 20 20% 20%;
 
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
+  --muted: 30 20% 94%;
+  --muted-foreground: 20 10% 45%;
 
   --accent: 142 76% 36%; /* Kitchen Green (Fresh/Safe) */
-  --accent-foreground: 355.7 100% 97.3%;
+  --accent-foreground: 0 0% 100%;
 
-  --destructive: 0 84.2% 60.2%; /* Alert Red */
-  --destructive-foreground: 210 40% 98%;
+  --destructive: 0 84% 60%; /* Alert Red */
+  --destructive-foreground: 0 0% 100%;
 
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 221 83% 53%;
+  --border: 30 20% 88%;
+  --input: 30 20% 88%;
+  --ring: 22 90% 54%;
 
   --radius: 0.5rem;
 }
