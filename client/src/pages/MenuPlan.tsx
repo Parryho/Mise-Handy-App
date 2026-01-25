@@ -208,7 +208,7 @@ function MenuCell({ date, dayName, dayNum, meal, plan, recipeName, recipes, isTo
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
-            recipeId: recipeId ? parseInt(recipeId) : null, 
+            recipeId: recipeId && recipeId !== 'none' ? parseInt(recipeId) : null, 
             portions: parseInt(portions) || 1 
           })
         });
@@ -219,7 +219,7 @@ function MenuCell({ date, dayName, dayNum, meal, plan, recipeName, recipes, isTo
           body: JSON.stringify({ 
             date, 
             meal, 
-            recipeId: recipeId ? parseInt(recipeId) : null,
+            recipeId: recipeId && recipeId !== 'none' ? parseInt(recipeId) : null,
             portions: parseInt(portions) || 1
           })
         });
@@ -276,7 +276,7 @@ function MenuCell({ date, dayName, dayNum, meal, plan, recipeName, recipes, isTo
                 <SelectValue placeholder="Rezept wählen..." />
               </SelectTrigger>
               <SelectContent className="max-h-60">
-                <SelectItem value="">Kein Rezept</SelectItem>
+                <SelectItem value="none">Kein Rezept</SelectItem>
                 {recipes.map(r => (
                   <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
                 ))}
