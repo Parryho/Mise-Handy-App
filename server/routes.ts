@@ -1207,41 +1207,85 @@ export async function registerRoutes(
         return;
       }
       
-      // Default: PDF
+      // Default: PDF - Modern "Let's do lunch" style
       const PDFDocument = (await import('pdfkit')).default;
-      const doc = new PDFDocument({ margin: 50, size: 'A4' });
+      const doc = new PDFDocument({ margin: 40, size: 'A4' });
       
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="Menuplan_${startDate}_${endDate}.pdf"`);
       
       doc.pipe(res);
       
-      doc.fontSize(20).font('Helvetica-Bold').text('Menüplan', { align: 'center' });
-      doc.fontSize(12).font('Helvetica').text(`${startDate} bis ${endDate}`, { align: 'center' });
-      doc.moveDown(2);
+      const orange = '#F37021';
+      const darkGray = '#333333';
+      const lightGray = '#666666';
+      const bgLight = '#FFF8F5';
+      const pageWidth = 515;
+      const startX = 40;
+      
+      // Header with orange accent bar
+      doc.rect(0, 0, 595, 80).fill(orange);
+      doc.fillColor('white').fontSize(28).font('Helvetica-Bold').text('MENÜPLAN', startX, 25, { align: 'center' });
+      
+      // Date range subtitle
+      const startD = new Date(startDate);
+      const endD = new Date(endDate);
+      const dateRange = `${startD.toLocaleDateString('de-DE', { day: '2-digit', month: 'long' })} - ${endD.toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' })}`;
+      doc.fontSize(12).font('Helvetica').text(dateRange, startX, 55, { align: 'center' });
+      
+      doc.fillColor(darkGray);
+      let yPos = 100;
+      
+      // Group by date for the week view
+      const weekdays = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
       
       for (const date of sortedDates) {
         const d = new Date(date);
-        doc.fontSize(14).font('Helvetica-Bold').text(d.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }));
-        doc.moveDown(0.5);
-        
         const entries = dateMap.get(date)!;
-        const meals = ['breakfast', 'lunch', 'dinner'];
+        
+        // Check for page break
+        if (yPos > 700) {
+          doc.addPage();
+          yPos = 50;
+        }
+        
+        // Day header card
+        doc.rect(startX, yPos, pageWidth, 28).fill(orange);
+        doc.fillColor('white').fontSize(14).font('Helvetica-Bold');
+        doc.text(`${weekdays[d.getDay()]}, ${d.getDate()}. ${d.toLocaleDateString('de-DE', { month: 'long' })}`, startX + 12, yPos + 7);
+        yPos += 35;
+        
+        // Meals for this day
+        const meals = ['lunch', 'dinner'];
         for (const meal of meals) {
           const mealEntries = entries.filter(e => e.meal === meal);
           if (mealEntries.length > 0) {
-            doc.fontSize(11).font('Helvetica-Bold').text(mealNames[meal]);
+            // Meal header
+            doc.fillColor(orange).fontSize(11).font('Helvetica-Bold');
+            const mealIcon = meal === 'lunch' ? '☀️' : '🌙';
+            doc.text(`${mealNames[meal].toUpperCase()}`, startX + 8, yPos);
+            yPos += 16;
+            
+            // Course entries
             for (const entry of mealEntries) {
-              doc.fontSize(10).font('Helvetica').text(`  ${courseNames[entry.course] || entry.course}: ${entry.recipeName} (${entry.portions} Port.)`);
+              doc.fillColor(lightGray).fontSize(9).font('Helvetica');
+              doc.text(`${courseNames[entry.course] || entry.course}:`, startX + 12, yPos, { continued: true });
+              doc.fillColor(darkGray).font('Helvetica-Bold').text(` ${entry.recipeName}`, { continued: true });
+              doc.fillColor(lightGray).font('Helvetica').text(` (${entry.portions} Port.)`);
+              yPos += 14;
             }
+            yPos += 4;
           }
         }
-        doc.moveDown();
+        yPos += 10;
       }
       
       if (sortedDates.length === 0) {
-        doc.fontSize(12).font('Helvetica').text('Keine Einträge im ausgewählten Zeitraum.', { align: 'center' });
+        doc.fillColor(lightGray).fontSize(14).font('Helvetica').text('Keine Einträge im ausgewählten Zeitraum.', startX, yPos + 50, { align: 'center' });
       }
+      
+      // Footer
+      doc.fontSize(8).fillColor(lightGray).text('Mise - befor Serve | Menüplan', startX, 780, { align: 'center' });
       
       doc.end();
     } catch (error: any) {
