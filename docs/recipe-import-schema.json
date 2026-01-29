@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Recipe Import Schema",
+  "description": "Schema for bulk importing recipes into the Mise application",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["name", "category"],
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Recipe name",
+        "minLength": 1
+      },
+      "category": {
+        "type": "string",
+        "description": "Recipe category",
+        "enum": ["Soups", "Starters", "Mains", "MainsVeg", "Sides", "Desserts", "Salads", "Breakfast", "Snacks", "Drinks"]
+      },
+      "portions": {
+        "type": "integer",
+        "description": "Number of portions",
+        "minimum": 1,
+        "default": 1
+      },
+      "prepTime": {
+        "type": "integer",
+        "description": "Preparation time in minutes",
+        "minimum": 0,
+        "default": 0
+      },
+      "image": {
+        "type": ["string", "null"],
+        "description": "URL to recipe image",
+        "format": "uri"
+      },
+      "sourceUrl": {
+        "type": ["string", "null"],
+        "description": "Original source URL",
+        "format": "uri"
+      },
+      "steps": {
+        "type": "array",
+        "description": "Preparation steps",
+        "items": {
+          "type": "string"
+        },
+        "default": []
+      },
+      "allergens": {
+        "type": "array",
+        "description": "Allergen codes (EU standard: A-N)",
+        "items": {
+          "type": "string",
+          "enum": ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N"]
+        },
+        "default": []
+      },
+      "ingredients": {
+        "type": "array",
+        "description": "List of ingredients",
+        "items": {
+          "type": "object",
+          "required": ["name", "amount", "unit"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Ingredient name"
+            },
+            "amount": {
+              "type": "number",
+              "description": "Quantity"
+            },
+            "unit": {
+              "type": "string",
+              "description": "Unit of measurement (g, kg, ml, l, Stk, EL, TL, etc.)"
+            },
+            "allergens": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N"]
+              },
+              "default": []
+            }
+          }
+        },
+        "default": []
+      }
+    }
+  }
+}

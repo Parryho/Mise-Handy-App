@@ -1,0 +1,52 @@
+[
+  {
+    "name": "Wiener Schnitzel",
+    "category": "Mains",
+    "portions": 4,
+    "prepTime": 30,
+    "image": null,
+    "sourceUrl": null,
+    "steps": [
+      "Fleisch zwischen Frischhaltefolie auf 5mm Dicke klopfen",
+      "Mit Salz und Pfeffer würzen",
+      "Nacheinander in Mehl, verquirltem Ei und Semmelbröseln wenden",
+      "In reichlich Butterschmalz bei 170°C goldbraun ausbacken",
+      "Auf Küchenpapier abtropfen lassen",
+      "Mit Zitronenspalten und Petersilienkartoffeln servieren"
+    ],
+    "allergens": ["A", "C"],
+    "ingredients": [
+      { "name": "Kalbsschnitzel", "amount": 600, "unit": "g", "allergens": [] },
+      { "name": "Mehl", "amount": 100, "unit": "g", "allergens": ["A"] },
+      { "name": "Eier", "amount": 2, "unit": "Stk", "allergens": ["C"] },
+      { "name": "Semmelbrösel", "amount": 150, "unit": "g", "allergens": ["A"] },
+      { "name": "Butterschmalz", "amount": 200, "unit": "g", "allergens": [] },
+      { "name": "Salz", "amount": 1, "unit": "TL", "allergens": [] },
+      { "name": "Pfeffer", "amount": 0.5, "unit": "TL", "allergens": [] },
+      { "name": "Zitrone", "amount": 1, "unit": "Stk", "allergens": [] }
+    ]
+  },
+  {
+    "name": "Käsespätzle",
+    "category": "MainsVeg",
+    "portions": 4,
+    "prepTime": 40,
+    "steps": [
+      "Mehl, Eier und Salz zu einem glatten Teig verrühren",
+      "Teig durch Spätzlehobel in kochendes Salzwasser drücken",
+      "Wenn Spätzle oben schwimmen, abschöpfen",
+      "Schichtweise mit geriebenem Bergkäse in eine Form schichten",
+      "Im Ofen bei 180°C überbacken",
+      "Mit knusprigen Röstzwiebeln servieren"
+    ],
+    "allergens": ["A", "C", "G"],
+    "ingredients": [
+      { "name": "Mehl", "amount": 400, "unit": "g", "allergens": ["A"] },
+      { "name": "Eier", "amount": 4, "unit": "Stk", "allergens": ["C"] },
+      { "name": "Bergkäse gerieben", "amount": 300, "unit": "g", "allergens": ["G"] },
+      { "name": "Zwiebeln", "amount": 2, "unit": "Stk", "allergens": [] },
+      { "name": "Butter", "amount": 50, "unit": "g", "allergens": ["G"] },
+      { "name": "Salz", "amount": 1, "unit": "TL", "allergens": [] }
+    ]
+  }
+]

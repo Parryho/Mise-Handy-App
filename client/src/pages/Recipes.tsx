@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useApp, Recipe, Ingredient } from "@/lib/store";
 import { ALLERGENS, AllergenCode, useTranslation } from "@/lib/i18n";
 import { Input } from "@/components/ui/input";
@@ -12,25 +12,37 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { RECIPE_CATEGORIES } from "@shared/schema";
 
-const CATEGORIES = [
-  { id: "Soups", label: "Suppen", icon: "S", symbol: "🥄" },
-  { id: "Starters", label: "Vorspeisen", icon: "V", symbol: "🍽️" },
-  { id: "Mains", label: "Hauptspeise Fleisch", icon: "H", symbol: "🥩" },
-  { id: "MainsVeg", label: "Hauptspeise Veg", icon: "H", symbol: "🥗" },
-  { id: "Sides", label: "Beilagen", icon: "B", symbol: "🥔" },
-  { id: "Desserts", label: "Desserts", icon: "D", symbol: "🍰" },
-  { id: "Salads", label: "Salate", icon: "S", symbol: "🥬" },
-  { id: "Breakfast", label: "Frühstück", icon: "F", symbol: "☕" },
-  { id: "Snacks", label: "Snacks", icon: "S", symbol: "🥨" },
-  { id: "Drinks", label: "Getränke", icon: "G", symbol: "🍹" },
-];
+// Debounce hook
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
+
+// Use shared categories
+const CATEGORIES = RECIPE_CATEGORIES;
 
 export default function Recipes() {
   const { recipes, loading } = useApp();
   const { t } = useTranslation();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [globalSearch, setGlobalSearch] = useState("");
+  const debouncedGlobalSearch = useDebounce(globalSearch, 300);
+
+  // Global search results (min 2 characters, searches across all categories)
+  const globalSearchResults = useMemo(() => {
+    if (debouncedGlobalSearch.length < 2) return [];
+    const term = debouncedGlobalSearch.toLowerCase();
+    return recipes.filter(r => r.name.toLowerCase().includes(term));
+  }, [recipes, debouncedGlobalSearch]);
+
+  const isGlobalSearchActive = debouncedGlobalSearch.length >= 2;
 
   const filteredRecipes = recipes.filter(r => {
     const matchesCategory = selectedCategory ? r.category === selectedCategory : false;
@@ -47,6 +59,68 @@ export default function Recipes() {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Show global search results
+  if (isGlobalSearchActive) {
+    return (
+      <div className="p-4 space-y-4 pb-24">
+        <div className="sticky top-0 bg-background/95 backdrop-blur z-10 pb-2 space-y-3">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              onClick={() => setGlobalSearch("")}
+              data-testid="button-clear-search"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <h1 className="text-2xl font-heading font-bold">Suchergebnisse</h1>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder={t("searchRecipes")}
+              className="pl-9 bg-secondary/50 border-0"
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+              autoFocus
+              data-testid="input-global-search"
+            />
+            {globalSearch && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1 h-7 w-7"
+                onClick={() => setGlobalSearch("")}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid gap-4">
+          {globalSearchResults.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Search className="h-12 w-12 mx-auto mb-4 opacity-30" />
+              <p className="font-medium">Keine Rezepte gefunden</p>
+              <p className="text-sm mt-1">Versuchen Sie einen anderen Suchbegriff</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                {globalSearchResults.length} Rezept{globalSearchResults.length !== 1 ? 'e' : ''} gefunden
+              </p>
+              {globalSearchResults.map(recipe => (
+                <RecipeCard key={recipe.id} recipe={recipe} />
+              ))}
+            </>
+          )}
+        </div>
       </div>
     );
   }
@@ -86,7 +160,13 @@ export default function Recipes() {
         <div className="grid gap-4">
           {filteredRecipes.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              <p>{t("noData")}</p>
+              <Search className="h-12 w-12 mx-auto mb-4 opacity-30" />
+              <p className="font-medium">Keine Rezepte gefunden</p>
+              {search ? (
+                <p className="text-sm mt-1">Versuchen Sie einen anderen Suchbegriff oder wechseln Sie die Kategorie</p>
+              ) : (
+                <p className="text-sm mt-1">In dieser Kategorie sind noch keine Rezepte vorhanden</p>
+              )}
             </div>
           ) : (
             filteredRecipes.map(recipe => (
@@ -103,6 +183,18 @@ export default function Recipes() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-heading font-bold">{t("recipes")}</h1>
         <AddRecipeDialog />
+      </div>
+
+      {/* Global Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Alle Rezepte durchsuchen..."
+          className="pl-9 bg-secondary/50 border-0"
+          value={globalSearch}
+          onChange={(e) => setGlobalSearch(e.target.value)}
+          data-testid="input-global-search-main"
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -577,6 +669,20 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
                   )) : <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">{t("noAllergens")}</Badge>}
                 </div>
               </div>
+
+              {/* R2-T5: Display tags */}
+              {recipe.tags && recipe.tags.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-heading font-semibold mb-2 text-muted-foreground uppercase tracking-wide">Tags</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {recipe.tags.map(tag => (
+                      <Badge key={tag} variant="secondary" className="bg-primary/10 text-primary">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <h3 className="text-lg font-heading font-semibold mb-3 border-b pb-1">{t("ingredients")}</h3>

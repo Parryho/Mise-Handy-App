@@ -13,6 +13,7 @@ import Settings from "@/pages/Settings";
 import Guests from "@/pages/Guests";
 import Schedule from "@/pages/Schedule";
 import MenuPlanPage from "@/pages/MenuPlan";
+import Today from "@/pages/Today";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import NotFound from "@/pages/not-found";
@@ -106,6 +107,15 @@ function Router() {
         {user ? (
           <Layout>
             <MenuPlanPage />
+          </Layout>
+        ) : (
+          <Redirect to="/login" />
+        )}
+      </Route>
+      <Route path="/today">
+        {user ? (
+          <Layout>
+            <Today />
           </Layout>
         ) : (
           <Redirect to="/login" />

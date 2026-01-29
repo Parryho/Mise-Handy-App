@@ -1,4 +1,4 @@
-import { 
+import {
   type User, type InsertUser,
   type Recipe, type InsertRecipe,
   type Ingredient, type InsertIngredient,
@@ -11,8 +11,10 @@ import {
   type ScheduleEntry, type InsertScheduleEntry,
   type MenuPlan, type InsertMenuPlan,
   type AppSetting, type InsertAppSetting,
+  type Task, type InsertTask,
+  type TaskTemplate, type InsertTaskTemplate,
   users, recipes, ingredients, fridges, haccpLogs,
-  guestCounts, cateringEvents, staff, shiftTypes, scheduleEntries, menuPlans, appSettings
+  guestCounts, cateringEvents, staff, shiftTypes, scheduleEntries, menuPlans, appSettings, tasks, taskTemplates
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
@@ -31,7 +33,7 @@ export interface IStorage {
   getAllSettings(): Promise<AppSetting[]>;
   setSetting(key: string, value: string): Promise<AppSetting>;
   
-  getRecipes(): Promise<Recipe[]>;
+  getRecipes(filters?: { q?: string; category?: string }): Promise<Recipe[]>;
   getRecipe(id: number): Promise<Recipe | undefined>;
   createRecipe(recipe: InsertRecipe): Promise<Recipe>;
   updateRecipe(id: number, recipe: Partial<InsertRecipe>): Promise<Recipe | undefined>;
@@ -92,6 +94,19 @@ export interface IStorage {
   createMenuPlan(plan: InsertMenuPlan): Promise<MenuPlan>;
   updateMenuPlan(id: number, plan: Partial<InsertMenuPlan>): Promise<MenuPlan | undefined>;
   deleteMenuPlan(id: number): Promise<void>;
+
+  // Tasks
+  getTasksByDate(date: string): Promise<Task[]>;
+  createTask(task: InsertTask): Promise<Task>;
+  updateTask(id: number, patch: Partial<InsertTask>): Promise<Task | undefined>;
+  deleteTask(id: number): Promise<void>;
+
+  // R2-T12: Task Templates
+  getTaskTemplates(): Promise<TaskTemplate[]>;
+  getTaskTemplate(id: number): Promise<TaskTemplate | undefined>;
+  createTaskTemplate(template: InsertTaskTemplate): Promise<TaskTemplate>;
+  updateTaskTemplate(id: number, template: Partial<InsertTaskTemplate>): Promise<TaskTemplate | undefined>;
+  deleteTaskTemplate(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -149,8 +164,22 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async getRecipes(): Promise<Recipe[]> {
-    return db.select().from(recipes);
+  async getRecipes(filters?: { q?: string; category?: string }): Promise<Recipe[]> {
+    let query = db.select().from(recipes);
+
+    if (filters?.category) {
+      query = query.where(eq(recipes.category, filters.category)) as typeof query;
+    }
+
+    const results = await query;
+
+    // Filter by search term in name (case-insensitive)
+    if (filters?.q && filters.q.length >= 2) {
+      const searchTerm = filters.q.toLowerCase();
+      return results.filter(r => r.name.toLowerCase().includes(searchTerm));
+    }
+
+    return results;
   }
 
   async getRecipe(id: number): Promise<Recipe | undefined> {
@@ -164,7 +193,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateRecipe(id: number, recipe: Partial<InsertRecipe>): Promise<Recipe | undefined> {
-    const [updated] = await db.update(recipes).set(recipe).where(eq(recipes.id, id)).returning();
+    // R2-T4: Always update updatedAt on modification
+    const [updated] = await db.update(recipes).set({
+      ...recipe,
+      updatedAt: new Date(),
+    }).where(eq(recipes.id, id)).returning();
     return updated;
   }
 
@@ -367,6 +400,49 @@ export class DatabaseStorage implements IStorage {
 
   async deleteMenuPlan(id: number): Promise<void> {
     await db.delete(menuPlans).where(eq(menuPlans.id, id));
+  }
+
+  // Tasks
+  async getTasksByDate(date: string): Promise<Task[]> {
+    return db.select().from(tasks).where(eq(tasks.date, date)).orderBy(desc(tasks.priority));
+  }
+
+  async createTask(task: InsertTask): Promise<Task> {
+    const [created] = await db.insert(tasks).values(task).returning();
+    return created;
+  }
+
+  async updateTask(id: number, patch: Partial<InsertTask>): Promise<Task | undefined> {
+    const [updated] = await db.update(tasks).set(patch).where(eq(tasks.id, id)).returning();
+    return updated;
+  }
+
+  async deleteTask(id: number): Promise<void> {
+    await db.delete(tasks).where(eq(tasks.id, id));
+  }
+
+  // R2-T12: Task Templates
+  async getTaskTemplates(): Promise<TaskTemplate[]> {
+    return db.select().from(taskTemplates).orderBy(taskTemplates.name);
+  }
+
+  async getTaskTemplate(id: number): Promise<TaskTemplate | undefined> {
+    const [template] = await db.select().from(taskTemplates).where(eq(taskTemplates.id, id));
+    return template;
+  }
+
+  async createTaskTemplate(template: InsertTaskTemplate): Promise<TaskTemplate> {
+    const [created] = await db.insert(taskTemplates).values(template).returning();
+    return created;
+  }
+
+  async updateTaskTemplate(id: number, template: Partial<InsertTaskTemplate>): Promise<TaskTemplate | undefined> {
+    const [updated] = await db.update(taskTemplates).set(template).where(eq(taskTemplates.id, id)).returning();
+    return updated;
+  }
+
+  async deleteTaskTemplate(id: number): Promise<void> {
+    await db.delete(taskTemplates).where(eq(taskTemplates.id, id));
   }
 }
 

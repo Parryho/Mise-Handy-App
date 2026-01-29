@@ -2,13 +2,34 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { scrapeRecipe } from "./scraper";
-import { 
+import {
   insertRecipeSchema, insertIngredientSchema, insertFridgeSchema, insertHaccpLogSchema,
   insertGuestCountSchema, insertCateringEventSchema, insertStaffSchema, insertShiftTypeSchema, insertScheduleEntrySchema, insertMenuPlanSchema,
-  registerUserSchema, loginUserSchema
+  registerUserSchema, loginUserSchema, insertTaskSchema, updateTaskStatusSchema
 } from "@shared/schema";
 import bcrypt from "bcryptjs";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
+import rateLimit from "express-rate-limit";
+import { pool, ensureSessionTable } from "./db";
+
+// R2-T2: Rate limiting for auth endpoints
+const authRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // max 10 attempts per window per IP
+  message: { error: "Zu viele Anmeldeversuche. Bitte warten Sie 15 Minuten." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true, // Only count failed attempts
+});
+
+const registerRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // max 5 registrations per hour per IP
+  message: { error: "Zu viele Registrierungen. Bitte warten Sie eine Stunde." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Extend express-session to include user
 declare module "express-session" {
@@ -21,6 +42,9 @@ declare module "express-session" {
 const KITCHEN_POSITIONS = [
   "Küchenchef", "Sous-Chef", "Koch", "Früh-Koch", "Lehrling", "Abwasch", "Küchenhilfe", "Patissier", "Commis"
 ];
+
+// Helper to safely get route parameter as string (Express 5 types params as string | string[])
+const getParam = (param: string | string[]): string => Array.isArray(param) ? param[0] : param;
 
 // Roles with permission levels
 const ROLE_PERMISSIONS: Record<string, number> = {
@@ -38,13 +62,32 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
 
-  // Session middleware with improved security
+  // Ensure session table exists in PostgreSQL
+  await ensureSessionTable();
+
+  // Session middleware with PostgreSQL store
   const isProduction = process.env.NODE_ENV === "production";
+  const PgSession = connectPgSimple(session);
+
+  // R1-T2: Validate SESSION_SECRET in production
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (isProduction && !sessionSecret) {
+    throw new Error("FATAL: SESSION_SECRET environment variable is required in production mode. Server cannot start without it.");
+  }
+  if (!sessionSecret) {
+    console.warn("WARNING: SESSION_SECRET not set. Using insecure default for development only.");
+  }
+
   app.use(session({
-    secret: process.env.SESSION_SECRET || "chefmate-dev-secret-key-" + Math.random().toString(36),
+    store: new PgSession({
+      pool: pool,
+      tableName: "session",
+      createTableIfMissing: true,
+    }),
+    secret: sessionSecret || "chefmate-dev-secret-DO-NOT-USE-IN-PRODUCTION",
     resave: false,
     saveUninitialized: false,
-    cookie: { 
+    cookie: {
       secure: isProduction,
       httpOnly: true,
       sameSite: "lax",
@@ -94,9 +137,9 @@ export async function registerRoutes(
   };
 
   // === AUTH ROUTES ===
-  
-  // Register new user
-  app.post("/api/auth/register", async (req, res) => {
+
+  // Register new user (R2-T2: rate limited)
+  app.post("/api/auth/register", registerRateLimiter, async (req, res) => {
     try {
       const parsed = registerUserSchema.parse(req.body);
       
@@ -129,8 +172,8 @@ export async function registerRoutes(
     }
   });
 
-  // Login
-  app.post("/api/auth/login", async (req, res) => {
+  // Login (R2-T2: rate limited)
+  app.post("/api/auth/login", authRateLimiter, async (req, res) => {
     try {
       const parsed = loginUserSchema.parse(req.body);
       
@@ -228,7 +271,7 @@ export async function registerRoutes(
   // Update user (admin only)
   app.put("/api/admin/users/:id", requireAdmin, async (req, res) => {
     const { role, isApproved, position } = req.body;
-    const updated = await storage.updateUser(req.params.id, { role, isApproved, position });
+    const updated = await storage.updateUser(getParam(req.params.id), { role, isApproved, position });
     
     if (!updated) {
       return res.status(404).json({ error: "Benutzer nicht gefunden" });
@@ -247,17 +290,18 @@ export async function registerRoutes(
   // Delete user (admin only)
   app.delete("/api/admin/users/:id", requireAdmin, async (req, res) => {
     const currentUser = (req as any).user;
-    if (req.params.id === currentUser.id) {
+    const userId = getParam(req.params.id);
+    if (userId === currentUser.id) {
       return res.status(400).json({ error: "Sie können sich nicht selbst löschen" });
     }
-    
-    await storage.deleteUser(req.params.id);
+
+    await storage.deleteUser(userId);
     res.status(204).send();
   });
 
   // === ADMIN: App Settings ===
-  
-  app.get("/api/admin/settings", async (req, res) => {
+
+  app.get("/api/admin/settings", requireAdmin, async (req, res) => {
     const settings = await storage.getAllSettings();
     const settingsObj: Record<string, string> = {};
     for (const s of settings) {
@@ -268,7 +312,7 @@ export async function registerRoutes(
 
   app.put("/api/admin/settings/:key", requireAdmin, async (req, res) => {
     const { value } = req.body;
-    const setting = await storage.setSetting(req.params.key, value);
+    const setting = await storage.setSetting(getParam(req.params.key), value);
     res.json(setting);
   });
 
@@ -304,22 +348,27 @@ export async function registerRoutes(
   });
 
   // === RECIPES ===
-  app.get("/api/recipes", async (req, res) => {
-    const recipes = await storage.getRecipes();
+  app.get("/api/recipes", requireAuth, async (req, res) => {
+    const { q, category } = req.query;
+    const filters = {
+      q: typeof q === 'string' ? q : undefined,
+      category: typeof category === 'string' ? category : undefined,
+    };
+    const recipes = await storage.getRecipes(filters);
     res.json(recipes);
   });
 
-  app.get("/api/recipes/:id", async (req, res) => {
-    const id = parseInt(req.params.id, 10);
+  app.get("/api/recipes/:id", requireAuth, async (req, res) => {
+    const id = parseInt(getParam(req.params.id), 10);
     const recipe = await storage.getRecipe(id);
     if (!recipe) {
-      return res.status(404).json({ error: "Recipe not found" });
+      return res.status(404).json({ error: "Rezept nicht gefunden" });
     }
     const ingredients = await storage.getIngredients(id);
     res.json({ ...recipe, ingredientsList: ingredients });
   });
 
-  app.post("/api/recipes", async (req, res) => {
+  app.post("/api/recipes", requireAuth, async (req, res) => {
     try {
       const parsed = insertRecipeSchema.parse(req.body);
       const recipe = await storage.createRecipe(parsed);
@@ -343,12 +392,12 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/recipes/:id", async (req, res) => {
+  app.put("/api/recipes/:id", requireAuth, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(getParam(req.params.id), 10);
       const recipe = await storage.updateRecipe(id, req.body);
       if (!recipe) {
-        return res.status(404).json({ error: "Recipe not found" });
+        return res.status(404).json({ error: "Rezept nicht gefunden" });
       }
 
       // Update ingredients if provided
@@ -371,23 +420,23 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/recipes/:id", async (req, res) => {
-    const id = parseInt(req.params.id, 10);
+  app.delete("/api/recipes/:id", requireAuth, async (req, res) => {
+    const id = parseInt(getParam(req.params.id), 10);
     await storage.deleteRecipe(id);
     res.status(204).send();
   });
 
   // === RECIPE IMPORT FROM URL ===
-  app.post("/api/recipes/import", async (req, res) => {
+  app.post("/api/recipes/import", requireAuth, async (req, res) => {
     const { url } = req.body;
     if (!url) {
-      return res.status(400).json({ error: "URL is required" });
+      return res.status(400).json({ error: "URL ist erforderlich" });
     }
 
     try {
       const scraped = await scrapeRecipe(url);
       if (!scraped) {
-        return res.status(400).json({ error: "Could not parse recipe from URL" });
+        return res.status(400).json({ error: "Rezept konnte nicht von URL geladen werden" });
       }
 
       // Create the recipe
@@ -420,20 +469,98 @@ export async function registerRoutes(
     }
   });
 
+  // R2-T6: JSON Bulk Import (Admin only)
+  app.post("/api/recipes/import-json", requireAdmin, async (req, res) => {
+    try {
+      const recipes = req.body;
+
+      if (!Array.isArray(recipes)) {
+        return res.status(400).json({ error: "Body muss ein Array von Rezepten sein" });
+      }
+
+      if (recipes.length === 0) {
+        return res.status(400).json({ error: "Leeres Array" });
+      }
+
+      if (recipes.length > 100) {
+        return res.status(400).json({ error: "Maximal 100 Rezepte pro Import" });
+      }
+
+      const validCategories = ["Soups", "Starters", "Mains", "MainsVeg", "Sides", "Desserts", "Salads", "Breakfast", "Snacks", "Drinks"];
+      const created: any[] = [];
+      const errors: { index: number; error: string }[] = [];
+
+      for (let i = 0; i < recipes.length; i++) {
+        const r = recipes[i];
+
+        // Validate required fields
+        if (!r.name || typeof r.name !== "string") {
+          errors.push({ index: i, error: "name ist erforderlich" });
+          continue;
+        }
+        if (!r.category || !validCategories.includes(r.category)) {
+          errors.push({ index: i, error: `category muss einer von: ${validCategories.join(", ")}` });
+          continue;
+        }
+
+        try {
+          const recipe = await storage.createRecipe({
+            name: r.name,
+            category: r.category,
+            portions: r.portions || 1,
+            prepTime: r.prepTime || 0,
+            image: r.image || null,
+            sourceUrl: r.sourceUrl || null,
+            steps: Array.isArray(r.steps) ? r.steps : [],
+            allergens: Array.isArray(r.allergens) ? r.allergens : [],
+            tags: Array.isArray(r.tags) ? r.tags : [],
+          });
+
+          // Create ingredients if provided
+          if (Array.isArray(r.ingredients)) {
+            for (const ing of r.ingredients) {
+              if (ing.name && typeof ing.amount === "number" && ing.unit) {
+                await storage.createIngredient({
+                  recipeId: recipe.id,
+                  name: ing.name,
+                  amount: ing.amount,
+                  unit: ing.unit,
+                  allergens: Array.isArray(ing.allergens) ? ing.allergens : []
+                });
+              }
+            }
+          }
+
+          created.push({ id: recipe.id, name: recipe.name });
+        } catch (err: any) {
+          errors.push({ index: i, error: err.message });
+        }
+      }
+
+      res.status(201).json({
+        message: `${created.length} Rezepte importiert`,
+        created,
+        errors: errors.length > 0 ? errors : undefined
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // === INGREDIENTS ===
-  app.get("/api/recipes/:id/ingredients", async (req, res) => {
-    const recipeId = parseInt(req.params.id, 10);
+  app.get("/api/recipes/:id/ingredients", requireAuth, async (req, res) => {
+    const recipeId = parseInt(getParam(req.params.id), 10);
     const ingredients = await storage.getIngredients(recipeId);
     res.json(ingredients);
   });
 
   // === FRIDGES ===
-  app.get("/api/fridges", async (req, res) => {
+  app.get("/api/fridges", requireAuth, async (req, res) => {
     const fridges = await storage.getFridges();
     res.json(fridges);
   });
 
-  app.post("/api/fridges", async (req, res) => {
+  app.post("/api/fridges", requireAuth, async (req, res) => {
     try {
       const parsed = insertFridgeSchema.parse(req.body);
       const fridge = await storage.createFridge(parsed);
@@ -443,12 +570,12 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/fridges/:id", async (req, res) => {
+  app.put("/api/fridges/:id", requireAuth, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(getParam(req.params.id), 10);
       const fridge = await storage.updateFridge(id, req.body);
       if (!fridge) {
-        return res.status(404).json({ error: "Fridge not found" });
+        return res.status(404).json({ error: "Kühlschrank nicht gefunden" });
       }
       res.json(fridge);
     } catch (error: any) {
@@ -456,25 +583,25 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/fridges/:id", async (req, res) => {
-    const id = parseInt(req.params.id, 10);
+  app.delete("/api/fridges/:id", requireAuth, async (req, res) => {
+    const id = parseInt(getParam(req.params.id), 10);
     await storage.deleteFridge(id);
     res.status(204).send();
   });
 
   // === HACCP LOGS ===
-  app.get("/api/haccp-logs", async (req, res) => {
+  app.get("/api/haccp-logs", requireAuth, async (req, res) => {
     const logs = await storage.getHaccpLogs();
     res.json(logs);
   });
 
-  app.get("/api/fridges/:id/logs", async (req, res) => {
-    const fridgeId = parseInt(req.params.id, 10);
+  app.get("/api/fridges/:id/logs", requireAuth, async (req, res) => {
+    const fridgeId = parseInt(getParam(req.params.id), 10);
     const logs = await storage.getHaccpLogsByFridge(fridgeId);
     res.json(logs);
   });
 
-  app.post("/api/haccp-logs", async (req, res) => {
+  app.post("/api/haccp-logs", requireAuth, async (req, res) => {
     try {
       const parsed = insertHaccpLogSchema.parse(req.body);
       const log = await storage.createHaccpLog(parsed);
@@ -485,7 +612,7 @@ export async function registerRoutes(
   });
 
   // === SEED DATA (for initial setup) ===
-  app.post("/api/seed", async (req, res) => {
+  app.post("/api/seed", requireAdmin, async (req, res) => {
     try {
       // Check if data already exists
       const existingFridges = await storage.getFridges();
@@ -528,7 +655,7 @@ export async function registerRoutes(
   });
 
   // Seed Austrian/Styrian recipes
-  app.post("/api/seed-recipes", async (req, res) => {
+  app.post("/api/seed-recipes", requireAdmin, async (req, res) => {
     try {
       const existingRecipes = await storage.getRecipes();
       if (existingRecipes.length >= 20) {
@@ -586,26 +713,26 @@ export async function registerRoutes(
         { name: "Lasagne", category: "Mains", portions: 6, prepTime: 75, allergens: ["A", "C", "G"], steps: ["Bolognese zubereiten", "Schichten", "Überbacken"] },
 
         // MAINS - Vegetarian (20+)
-        { name: "Käsespätzle", category: "Mains", portions: 4, prepTime: 30, allergens: ["A", "C", "G"], steps: ["Spätzle kochen", "Schichten mit Käse", "Mit Röstzwiebeln servieren"] },
-        { name: "Spinatknödel", category: "Mains", portions: 4, prepTime: 40, allergens: ["A", "C", "G"], steps: ["Spinat hacken", "Mit Knödelteig mischen", "Kochen", "Mit brauner Butter servieren"] },
-        { name: "Gemüsestrudel", category: "Mains", portions: 6, prepTime: 50, allergens: ["A", "C", "G"], steps: ["Gemüse dünsten", "In Strudelteig wickeln", "Backen"] },
-        { name: "Eierschwammerl mit Knödel", category: "Mains", portions: 4, prepTime: 35, allergens: ["A", "C", "G"], steps: ["Schwammerl putzen", "In Rahm schwenken", "Mit Semmelknödel servieren"] },
-        { name: "Kasnocken", category: "Mains", portions: 4, prepTime: 30, allergens: ["A", "C", "G"], steps: ["Nockenteig zubereiten", "Mit Käse schichten", "Im Rohr überbacken"] },
-        { name: "Erdäpfelgulasch", category: "Mains", portions: 4, prepTime: 40, allergens: [], steps: ["Kartoffeln und Würstel würfeln", "Mit Paprika kochen"] },
-        { name: "Eiernockerl", category: "Mains", portions: 2, prepTime: 15, allergens: ["A", "C"], steps: ["Nockerl braten", "Mit Ei stocken lassen", "Mit grünem Salat servieren"] },
-        { name: "Topfenknödel", category: "Mains", portions: 4, prepTime: 35, allergens: ["A", "C", "G"], steps: ["Topfenteig zubereiten", "Knödel formen", "Kochen", "In Butterbröseln wälzen"] },
-        { name: "Marillenknödel", category: "Mains", portions: 4, prepTime: 45, allergens: ["A", "C", "G"], steps: ["Kartoffelteig zubereiten", "Marillen einwickeln", "Kochen", "In Bröseln wälzen"] },
-        { name: "Zwetschgenknödel", category: "Mains", portions: 4, prepTime: 45, allergens: ["A", "C", "G"], steps: ["Kartoffelteig zubereiten", "Zwetschgen einwickeln", "Kochen", "Mit Zimt-Zucker servieren"] },
-        { name: "Mohnnudeln", category: "Mains", portions: 4, prepTime: 30, allergens: ["A", "C"], steps: ["Kartoffelteig zu Nudeln formen", "Kochen", "In Mohn und Butter wälzen"] },
-        { name: "Krautstrudel", category: "Mains", portions: 6, prepTime: 60, allergens: ["A", "C"], steps: ["Kraut dünsten", "Mit Kümmel würzen", "In Strudelteig wickeln", "Backen"] },
-        { name: "Gemüselaibchen", category: "Mains", portions: 4, prepTime: 35, allergens: ["A", "C"], steps: ["Gemüse raspeln", "Mit Ei und Mehl binden", "Braten"] },
-        { name: "Käsesuppe", category: "Mains", portions: 4, prepTime: 25, allergens: ["A", "G"], steps: ["Zwiebeln anbraten", "Mit Suppe aufgießen", "Käse einschmelzen"] },
-        { name: "Reiberdatschi", category: "Mains", portions: 4, prepTime: 30, allergens: ["A", "C"], steps: ["Kartoffeln reiben", "Würzen", "Als Laibchen braten"] },
-        { name: "Polenta mit Schwammerl", category: "Mains", portions: 4, prepTime: 35, allergens: ["G"], steps: ["Polenta kochen", "Pilze braten", "Mit Parmesan servieren"] },
-        { name: "Risotto mit Spargel", category: "Mains", portions: 4, prepTime: 40, allergens: ["G"], steps: ["Spargel kochen", "Risotto zubereiten", "Zusammen servieren"] },
-        { name: "Quiche Lorraine", category: "Mains", portions: 6, prepTime: 55, allergens: ["A", "C", "G"], steps: ["Mürbteig backen", "Mit Eiermasse füllen", "Backen"] },
-        { name: "Flammkuchen", category: "Mains", portions: 4, prepTime: 30, allergens: ["A", "G"], steps: ["Teig dünn ausrollen", "Mit Sauerrahm bestreichen", "Belegen", "Backen"] },
-        { name: "Schinkenfleckerl", category: "Mains", portions: 4, prepTime: 35, allergens: ["A", "C", "G"], steps: ["Fleckerl kochen", "Mit Schinken und Sauerrahm überbacken"] },
+        { name: "Käsespätzle", category: "MainsVeg", portions: 4, prepTime: 30, allergens: ["A", "C", "G"], steps: ["Spätzle kochen", "Schichten mit Käse", "Mit Röstzwiebeln servieren"] },
+        { name: "Spinatknödel", category: "MainsVeg", portions: 4, prepTime: 40, allergens: ["A", "C", "G"], steps: ["Spinat hacken", "Mit Knödelteig mischen", "Kochen", "Mit brauner Butter servieren"] },
+        { name: "Gemüsestrudel", category: "MainsVeg", portions: 6, prepTime: 50, allergens: ["A", "C", "G"], steps: ["Gemüse dünsten", "In Strudelteig wickeln", "Backen"] },
+        { name: "Eierschwammerl mit Knödel", category: "MainsVeg", portions: 4, prepTime: 35, allergens: ["A", "C", "G"], steps: ["Schwammerl putzen", "In Rahm schwenken", "Mit Semmelknödel servieren"] },
+        { name: "Kasnocken", category: "MainsVeg", portions: 4, prepTime: 30, allergens: ["A", "C", "G"], steps: ["Nockenteig zubereiten", "Mit Käse schichten", "Im Rohr überbacken"] },
+        { name: "Erdäpfelgulasch", category: "MainsVeg", portions: 4, prepTime: 40, allergens: [], steps: ["Kartoffeln und Würstel würfeln", "Mit Paprika kochen"] },
+        { name: "Eiernockerl", category: "MainsVeg", portions: 2, prepTime: 15, allergens: ["A", "C"], steps: ["Nockerl braten", "Mit Ei stocken lassen", "Mit grünem Salat servieren"] },
+        { name: "Topfenknödel", category: "MainsVeg", portions: 4, prepTime: 35, allergens: ["A", "C", "G"], steps: ["Topfenteig zubereiten", "Knödel formen", "Kochen", "In Butterbröseln wälzen"] },
+        { name: "Marillenknödel", category: "MainsVeg", portions: 4, prepTime: 45, allergens: ["A", "C", "G"], steps: ["Kartoffelteig zubereiten", "Marillen einwickeln", "Kochen", "In Bröseln wälzen"] },
+        { name: "Zwetschgenknödel", category: "MainsVeg", portions: 4, prepTime: 45, allergens: ["A", "C", "G"], steps: ["Kartoffelteig zubereiten", "Zwetschgen einwickeln", "Kochen", "Mit Zimt-Zucker servieren"] },
+        { name: "Mohnnudeln", category: "MainsVeg", portions: 4, prepTime: 30, allergens: ["A", "C"], steps: ["Kartoffelteig zu Nudeln formen", "Kochen", "In Mohn und Butter wälzen"] },
+        { name: "Krautstrudel", category: "MainsVeg", portions: 6, prepTime: 60, allergens: ["A", "C"], steps: ["Kraut dünsten", "Mit Kümmel würzen", "In Strudelteig wickeln", "Backen"] },
+        { name: "Gemüselaibchen", category: "MainsVeg", portions: 4, prepTime: 35, allergens: ["A", "C"], steps: ["Gemüse raspeln", "Mit Ei und Mehl binden", "Braten"] },
+        { name: "Käsesuppe", category: "MainsVeg", portions: 4, prepTime: 25, allergens: ["A", "G"], steps: ["Zwiebeln anbraten", "Mit Suppe aufgießen", "Käse einschmelzen"] },
+        { name: "Reiberdatschi", category: "MainsVeg", portions: 4, prepTime: 30, allergens: ["A", "C"], steps: ["Kartoffeln reiben", "Würzen", "Als Laibchen braten"] },
+        { name: "Polenta mit Schwammerl", category: "MainsVeg", portions: 4, prepTime: 35, allergens: ["G"], steps: ["Polenta kochen", "Pilze braten", "Mit Parmesan servieren"] },
+        { name: "Risotto mit Spargel", category: "MainsVeg", portions: 4, prepTime: 40, allergens: ["G"], steps: ["Spargel kochen", "Risotto zubereiten", "Zusammen servieren"] },
+        { name: "Quiche Lorraine", category: "MainsVeg", portions: 6, prepTime: 55, allergens: ["A", "C", "G"], steps: ["Mürbteig backen", "Mit Eiermasse füllen", "Backen"] },
+        { name: "Flammkuchen", category: "MainsVeg", portions: 4, prepTime: 30, allergens: ["A", "G"], steps: ["Teig dünn ausrollen", "Mit Sauerrahm bestreichen", "Belegen", "Backen"] },
+        { name: "Schinkenfleckerl", category: "MainsVeg", portions: 4, prepTime: 35, allergens: ["A", "C", "G"], steps: ["Fleckerl kochen", "Mit Schinken und Sauerrahm überbacken"] },
 
         // SIDES (25+)
         { name: "Pommes Frites", category: "Sides", portions: 4, prepTime: 25, allergens: [], steps: ["Kartoffeln schneiden", "Frittieren", "Salzen"] },
@@ -745,14 +872,14 @@ export async function registerRoutes(
   });
 
   // === RECIPE EXPORT ===
-  app.get("/api/recipes/:id/export/:format", async (req, res) => {
+  app.get("/api/recipes/:id/export/:format", requireAuth, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
-      const format = req.params.format;
+      const id = parseInt(getParam(req.params.id), 10);
+      const format = getParam(req.params.format);
       const recipe = await storage.getRecipe(id);
       
       if (!recipe) {
-        return res.status(404).json({ error: "Recipe not found" });
+        return res.status(404).json({ error: "Rezept nicht gefunden" });
       }
       
       const ingredients = await storage.getIngredients(id);
@@ -849,7 +976,7 @@ export async function registerRoutes(
         res.setHeader('Content-Disposition', `attachment; filename="${recipe.name.replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_')}.docx"`);
         res.send(buffer);
       } else {
-        res.status(400).json({ error: "Unsupported format. Use 'pdf' or 'docx'" });
+        res.status(400).json({ error: "Nicht unterstütztes Format. Verwenden Sie 'pdf' oder 'docx'" });
       }
     } catch (error: any) {
       console.error('Export error:', error);
@@ -858,7 +985,7 @@ export async function registerRoutes(
   });
 
   // === GUEST COUNTS ===
-  app.get("/api/guests", async (req, res) => {
+  app.get("/api/guests", requireAuth, async (req, res) => {
     const { start, end } = req.query;
     const startDate = (start as string) || new Date().toISOString().split('T')[0];
     const endDate = (end as string) || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -866,7 +993,7 @@ export async function registerRoutes(
     res.json(counts);
   });
 
-  app.post("/api/guests", async (req, res) => {
+  app.post("/api/guests", requireAuth, async (req, res) => {
     try {
       const parsed = insertGuestCountSchema.parse(req.body);
       const existing = await storage.getGuestCountByDateMeal(parsed.date, parsed.meal);
@@ -881,37 +1008,37 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/guests/:id", async (req, res) => {
+  app.put("/api/guests/:id", requireAuth, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(getParam(req.params.id), 10);
       const updated = await storage.updateGuestCount(id, req.body);
-      if (!updated) return res.status(404).json({ error: "Not found" });
+      if (!updated) return res.status(404).json({ error: "Nicht gefunden" });
       res.json(updated);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-  app.delete("/api/guests/:id", async (req, res) => {
-    const id = parseInt(req.params.id, 10);
+  app.delete("/api/guests/:id", requireAuth, async (req, res) => {
+    const id = parseInt(getParam(req.params.id), 10);
     await storage.deleteGuestCount(id);
     res.status(204).send();
   });
 
   // === CATERING EVENTS ===
-  app.get("/api/catering", async (req, res) => {
+  app.get("/api/catering", requireAuth, async (req, res) => {
     const events = await storage.getCateringEvents();
     res.json(events);
   });
 
-  app.get("/api/catering/:id", async (req, res) => {
-    const id = parseInt(req.params.id, 10);
+  app.get("/api/catering/:id", requireAuth, async (req, res) => {
+    const id = parseInt(getParam(req.params.id), 10);
     const event = await storage.getCateringEvent(id);
-    if (!event) return res.status(404).json({ error: "Not found" });
+    if (!event) return res.status(404).json({ error: "Nicht gefunden" });
     res.json(event);
   });
 
-  app.post("/api/catering", async (req, res) => {
+  app.post("/api/catering", requireAuth, async (req, res) => {
     try {
       const parsed = insertCateringEventSchema.parse(req.body);
       const created = await storage.createCateringEvent(parsed);
@@ -921,37 +1048,37 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/catering/:id", async (req, res) => {
+  app.put("/api/catering/:id", requireAuth, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(getParam(req.params.id), 10);
       const updated = await storage.updateCateringEvent(id, req.body);
-      if (!updated) return res.status(404).json({ error: "Not found" });
+      if (!updated) return res.status(404).json({ error: "Nicht gefunden" });
       res.json(updated);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-  app.delete("/api/catering/:id", async (req, res) => {
-    const id = parseInt(req.params.id, 10);
+  app.delete("/api/catering/:id", requireAuth, async (req, res) => {
+    const id = parseInt(getParam(req.params.id), 10);
     await storage.deleteCateringEvent(id);
     res.status(204).send();
   });
 
   // === STAFF ===
-  app.get("/api/staff", async (req, res) => {
+  app.get("/api/staff", requireAuth, async (req, res) => {
     const members = await storage.getStaff();
     res.json(members);
   });
 
-  app.get("/api/staff/:id", async (req, res) => {
-    const id = parseInt(req.params.id, 10);
+  app.get("/api/staff/:id", requireAuth, async (req, res) => {
+    const id = parseInt(getParam(req.params.id), 10);
     const member = await storage.getStaffMember(id);
-    if (!member) return res.status(404).json({ error: "Not found" });
+    if (!member) return res.status(404).json({ error: "Mitarbeiter nicht gefunden" });
     res.json(member);
   });
 
-  app.post("/api/staff", async (req, res) => {
+  app.post("/api/staff", requireAuth, async (req, res) => {
     try {
       const parsed = insertStaffSchema.parse(req.body);
       const created = await storage.createStaff(parsed);
@@ -961,30 +1088,30 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/staff/:id", async (req, res) => {
+  app.put("/api/staff/:id", requireAuth, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(getParam(req.params.id), 10);
       const updated = await storage.updateStaff(id, req.body);
-      if (!updated) return res.status(404).json({ error: "Not found" });
+      if (!updated) return res.status(404).json({ error: "Mitarbeiter nicht gefunden" });
       res.json(updated);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-  app.delete("/api/staff/:id", async (req, res) => {
-    const id = parseInt(req.params.id, 10);
+  app.delete("/api/staff/:id", requireAuth, async (req, res) => {
+    const id = parseInt(getParam(req.params.id), 10);
     await storage.deleteStaff(id);
     res.status(204).send();
   });
 
   // === SHIFT TYPES (Dienste) ===
-  app.get("/api/shift-types", async (req, res) => {
+  app.get("/api/shift-types", requireAuth, async (req, res) => {
     const shiftTypes = await storage.getShiftTypes();
     res.json(shiftTypes);
   });
 
-  app.post("/api/shift-types", async (req, res) => {
+  app.post("/api/shift-types", requireAuth, async (req, res) => {
     try {
       const parsed = insertShiftTypeSchema.parse(req.body);
       const created = await storage.createShiftType(parsed);
@@ -994,33 +1121,51 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/shift-types/:id", async (req, res) => {
+  app.put("/api/shift-types/:id", requireAuth, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(getParam(req.params.id), 10);
       const updated = await storage.updateShiftType(id, req.body);
-      if (!updated) return res.status(404).json({ error: "Not found" });
+      if (!updated) return res.status(404).json({ error: "Diensttyp nicht gefunden" });
       res.json(updated);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-  app.delete("/api/shift-types/:id", async (req, res) => {
-    const id = parseInt(req.params.id, 10);
+  app.delete("/api/shift-types/:id", requireAuth, async (req, res) => {
+    const id = parseInt(getParam(req.params.id), 10);
     await storage.deleteShiftType(id);
     res.status(204).send();
   });
 
   // === SCHEDULE ===
-  app.get("/api/schedule", async (req, res) => {
-    const { start, end } = req.query;
+  // R2-T9: Added mine=1 filter for "Meine Schichten"
+  app.get("/api/schedule", requireAuth, async (req, res) => {
+    const { start, end, mine } = req.query;
     const startDate = (start as string) || new Date().toISOString().split('T')[0];
     const endDate = (end as string) || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const entries = await storage.getScheduleEntries(startDate, endDate);
+    let entries = await storage.getScheduleEntries(startDate, endDate);
+
+    // Filter to only show user's own shifts
+    if (mine === "1") {
+      const user = (req as any).user;
+      if (user) {
+        // Find staff member linked to this user
+        const allStaff = await storage.getStaff();
+        const myStaff = allStaff.find((s: any) => s.userId === user.id);
+        if (myStaff) {
+          entries = entries.filter(e => e.staffId === myStaff.id);
+        } else {
+          // No staff linked to user, return empty
+          entries = [];
+        }
+      }
+    }
+
     res.json(entries);
   });
 
-  app.post("/api/schedule", async (req, res) => {
+  app.post("/api/schedule", requireAuth, async (req, res) => {
     try {
       const parsed = insertScheduleEntrySchema.parse(req.body);
       const created = await storage.createScheduleEntry(parsed);
@@ -1030,33 +1175,46 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/schedule/:id", async (req, res) => {
+  app.put("/api/schedule/:id", requireAuth, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(getParam(req.params.id), 10);
       const updated = await storage.updateScheduleEntry(id, req.body);
-      if (!updated) return res.status(404).json({ error: "Not found" });
+      if (!updated) return res.status(404).json({ error: "Schichteintrag nicht gefunden" });
       res.json(updated);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-  app.delete("/api/schedule/:id", async (req, res) => {
-    const id = parseInt(req.params.id, 10);
+  app.delete("/api/schedule/:id", requireAuth, async (req, res) => {
+    const id = parseInt(getParam(req.params.id), 10);
     await storage.deleteScheduleEntry(id);
     res.status(204).send();
   });
 
   // === MENU PLANS ===
-  app.get("/api/menu-plans", async (req, res) => {
-    const { start, end } = req.query;
-    const startDate = (start as string) || new Date().toISOString().split('T')[0];
-    const endDate = (end as string) || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  app.get("/api/menu-plans", requireAuth, async (req, res) => {
+    const { start, end, date, withRecipes } = req.query;
+    // Support single date or date range
+    const startDate = (date as string) || (start as string) || new Date().toISOString().split('T')[0];
+    const endDate = (date as string) || (end as string) || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const plans = await storage.getMenuPlans(startDate, endDate);
+
+    // Optionally include recipe data
+    if (withRecipes === '1' || withRecipes === 'true') {
+      const recipes = await storage.getRecipes();
+      const recipeMap = new Map(recipes.map(r => [r.id, r]));
+      const plansWithRecipes = plans.map(plan => ({
+        ...plan,
+        recipe: plan.recipeId ? recipeMap.get(plan.recipeId) : null,
+      }));
+      return res.json(plansWithRecipes);
+    }
+
     res.json(plans);
   });
 
-  app.post("/api/menu-plans", async (req, res) => {
+  app.post("/api/menu-plans", requireAuth, async (req, res) => {
     try {
       const parsed = insertMenuPlanSchema.parse(req.body);
       const created = await storage.createMenuPlan(parsed);
@@ -1066,25 +1224,25 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/menu-plans/:id", async (req, res) => {
+  app.put("/api/menu-plans/:id", requireAuth, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(getParam(req.params.id), 10);
       const updated = await storage.updateMenuPlan(id, req.body);
-      if (!updated) return res.status(404).json({ error: "Not found" });
+      if (!updated) return res.status(404).json({ error: "Nicht gefunden" });
       res.json(updated);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-  app.delete("/api/menu-plans/:id", async (req, res) => {
-    const id = parseInt(req.params.id, 10);
+  app.delete("/api/menu-plans/:id", requireAuth, async (req, res) => {
+    const id = parseInt(getParam(req.params.id), 10);
     await storage.deleteMenuPlan(id);
     res.status(204).send();
   });
 
   // === HACCP REPORT PDF EXPORT ===
-  app.get("/api/haccp-logs/export", async (req, res) => {
+  app.get("/api/haccp-logs/export", requireAuth, async (req, res) => {
     try {
       const { start, end } = req.query;
       const logs = await storage.getHaccpLogs();
@@ -1121,7 +1279,7 @@ export async function registerRoutes(
         fridgeMap.get(log.fridgeId)!.push(log);
       }
       
-      for (const [fridgeId, fridgeLogs] of fridgeMap) {
+      for (const [fridgeId, fridgeLogs] of Array.from(fridgeMap.entries())) {
         const fridge = fridges.find(f => f.id === fridgeId);
         if (!fridge) continue;
         
@@ -1165,7 +1323,7 @@ export async function registerRoutes(
   });
 
   // === MENU PLAN EXPORT (PDF, XLSX, DOCX) ===
-  app.get("/api/menu-plans/export", async (req, res) => {
+  app.get("/api/menu-plans/export", requireAuth, async (req, res) => {
     try {
       const { start, end, format = 'pdf' } = req.query;
       const startDate = (start as string) || new Date().toISOString().split('T')[0];
@@ -1392,7 +1550,7 @@ export async function registerRoutes(
   });
 
   // === SCHEDULE EXPORT ===
-  app.get("/api/schedule/export", async (req, res) => {
+  app.get("/api/schedule/export", requireAuth, async (req, res) => {
     try {
       const { start, end, format = 'pdf' } = req.query;
       const startDate = (start as string) || new Date().toISOString().split('T')[0];
@@ -1576,6 +1734,140 @@ export async function registerRoutes(
       doc.end();
     } catch (error: any) {
       console.error('Schedule export error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // === TASKS ("Heute" Modul) ===
+
+  // Get tasks by date (default: today)
+  app.get("/api/tasks", requireAuth, async (req, res) => {
+    try {
+      const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+      const taskList = await storage.getTasksByDate(date);
+      res.json(taskList);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create task
+  app.post("/api/tasks", requireAuth, async (req, res) => {
+    try {
+      const parsed = insertTaskSchema.parse(req.body);
+      const task = await storage.createTask(parsed);
+      res.status(201).json(task);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Update task status
+  app.patch("/api/tasks/:id/status", requireAuth, async (req, res) => {
+    try {
+      const { status } = updateTaskStatusSchema.parse(req.body);
+      const updated = await storage.updateTask(parseInt(getParam(req.params.id), 10), { status });
+      if (!updated) {
+        return res.status(404).json({ error: "Task nicht gefunden" });
+      }
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Delete task
+  app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteTask(parseInt(getParam(req.params.id), 10));
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // === R2-T12: TASK TEMPLATES (Admin only) ===
+  app.get("/api/task-templates", requireAuth, async (_req, res) => {
+    const templates = await storage.getTaskTemplates();
+    res.json(templates);
+  });
+
+  app.get("/api/task-templates/:id", requireAuth, async (req, res) => {
+    const template = await storage.getTaskTemplate(parseInt(getParam(req.params.id), 10));
+    if (!template) {
+      return res.status(404).json({ error: "Vorlage nicht gefunden" });
+    }
+    res.json(template);
+  });
+
+  app.post("/api/task-templates", requireAdmin, async (req, res) => {
+    try {
+      const { name, items } = req.body;
+      if (!name) {
+        return res.status(400).json({ error: "Name ist erforderlich" });
+      }
+      const template = await storage.createTaskTemplate({
+        name,
+        items: JSON.stringify(items || [])
+      });
+      res.status(201).json(template);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.put("/api/task-templates/:id", requireAdmin, async (req, res) => {
+    try {
+      const { name, items } = req.body;
+      const update: any = {};
+      if (name) update.name = name;
+      if (items) update.items = JSON.stringify(items);
+      const template = await storage.updateTaskTemplate(parseInt(getParam(req.params.id), 10), update);
+      if (!template) {
+        return res.status(404).json({ error: "Vorlage nicht gefunden" });
+      }
+      res.json(template);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/task-templates/:id", requireAdmin, async (req, res) => {
+    await storage.deleteTaskTemplate(parseInt(getParam(req.params.id), 10));
+    res.status(204).send();
+  });
+
+  // R2-T13: Create tasks from template
+  app.post("/api/task-templates/:id/apply", requireAuth, async (req, res) => {
+    try {
+      const templateId = parseInt(getParam(req.params.id), 10);
+      const { date } = req.body;
+      const targetDate = date || new Date().toISOString().split('T')[0];
+
+      const template = await storage.getTaskTemplate(templateId);
+      if (!template) {
+        return res.status(404).json({ error: "Vorlage nicht gefunden" });
+      }
+
+      const items = JSON.parse(template.items || "[]");
+      const created: any[] = [];
+
+      for (const item of items) {
+        const task = await storage.createTask({
+          date: targetDate,
+          title: item.title,
+          note: item.note || null,
+          priority: item.priority || 0,
+          status: "open"
+        });
+        created.push(task);
+      }
+
+      res.status(201).json({
+        message: `${created.length} Tasks aus "${template.name}" erstellt`,
+        tasks: created
+      });
+    } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });

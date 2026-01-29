@@ -3,6 +3,29 @@ import { pgTable, text, varchar, serial, integer, doublePrecision, timestamp, bo
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Recipe Categories - Single source of truth for client and server
+export const RECIPE_CATEGORIES = [
+  { id: "Soups", label: "Suppen", icon: "S", symbol: "🥄" },
+  { id: "Starters", label: "Vorspeisen", icon: "V", symbol: "🍽️" },
+  { id: "Mains", label: "Hauptspeise Fleisch", icon: "H", symbol: "🥩" },
+  { id: "MainsVeg", label: "Hauptspeise Veg", icon: "H", symbol: "🥗" },
+  { id: "Sides", label: "Beilagen", icon: "B", symbol: "🥔" },
+  { id: "Desserts", label: "Desserts", icon: "D", symbol: "🍰" },
+  { id: "Salads", label: "Salate", icon: "S", symbol: "🥬" },
+  { id: "Breakfast", label: "Frühstück", icon: "F", symbol: "☕" },
+  { id: "Snacks", label: "Snacks", icon: "S", symbol: "🥨" },
+  { id: "Drinks", label: "Getränke", icon: "G", symbol: "🍹" },
+] as const;
+
+export type RecipeCategoryId = typeof RECIPE_CATEGORIES[number]["id"];
+
+// Session table (managed by connect-pg-simple, defined here so Drizzle doesn't delete it)
+export const session = pgTable("session", {
+  sid: varchar("sid").primaryKey(),
+  sess: text("sess").notNull(), // JSON stored as text
+  expire: timestamp("expire", { precision: 6 }).notNull(),
+});
+
 // Roles: admin (Küchenchef), souschef, koch, fruehkoch, lehrling, abwasch, guest
 // Positions: Küchenchef, Sous-Chef, Koch, Früh-Koch, Lehrling, Abwasch, Küchenhilfe, etc.
 export const users = pgTable("users", {
@@ -34,6 +57,10 @@ export const recipes = pgTable("recipes", {
   sourceUrl: text("source_url"),
   steps: text("steps").array().notNull().default([]),
   allergens: text("allergens").array().notNull().default([]),
+  // R2-T3: Tags for filtering (e.g., vegetarisch, schnell, vegan)
+  tags: text("tags").array().notNull().default([]),
+  // R2-T4: Track last modification
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 export const ingredients = pgTable("ingredients", {
@@ -111,6 +138,8 @@ export const staff = pgTable("staff", {
   color: text("color").notNull().default("#3b82f6"),
   email: text("email"),
   phone: text("phone"),
+  // R2-T7: Link staff to user account (optional)
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
 });
 
 // Shift types (Dienste) with times
@@ -151,6 +180,34 @@ export const insertShiftTypeSchema = createInsertSchema(shiftTypes).omit({ id: t
 export const insertScheduleEntrySchema = createInsertSchema(scheduleEntries).omit({ id: true });
 export const insertMenuPlanSchema = createInsertSchema(menuPlans).omit({ id: true });
 
+// Tasks for "Heute" module
+export const tasks = pgTable("tasks", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(), // YYYY-MM-DD
+  title: text("title").notNull(),
+  note: text("note"),
+  assignedToUserId: varchar("assigned_to_user_id").references(() => users.id, { onDelete: "set null" }),
+  status: text("status").notNull().default("open"), // open | done
+  priority: integer("priority").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true });
+export const updateTaskStatusSchema = z.object({
+  status: z.enum(["open", "done"]),
+});
+
+// R2-T12: Task Templates for recurring checklists
+export const taskTemplates = pgTable("task_templates", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  // Items stored as JSON array: [{ title: string, note?: string, priority?: number }]
+  items: text("items").notNull().default("[]"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertTaskTemplateSchema = createInsertSchema(taskTemplates).omit({ id: true, createdAt: true });
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type RegisterUser = z.infer<typeof registerUserSchema>;
 export type LoginUser = z.infer<typeof loginUserSchema>;
@@ -177,3 +234,7 @@ export type ScheduleEntry = typeof scheduleEntries.$inferSelect;
 export type InsertScheduleEntry = z.infer<typeof insertScheduleEntrySchema>;
 export type MenuPlan = typeof menuPlans.$inferSelect;
 export type InsertMenuPlan = z.infer<typeof insertMenuPlanSchema>;
+export type Task = typeof tasks.$inferSelect;
+export type InsertTask = z.infer<typeof insertTaskSchema>;
+export type TaskTemplate = typeof taskTemplates.$inferSelect;
+export type InsertTaskTemplate = z.infer<typeof insertTaskTemplateSchema>;

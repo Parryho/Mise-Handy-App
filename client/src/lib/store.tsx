@@ -24,6 +24,10 @@ export interface Recipe {
   steps: string[];
   allergens: AllergenCode[];
   ingredientsList?: Ingredient[];
+  // R2-T3: Tags for filtering
+  tags?: string[];
+  // R2-T4: Last modification timestamp
+  updatedAt?: string;
 }
 
 export interface Fridge {
