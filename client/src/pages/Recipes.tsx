@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Search, Minus, Plus, Clock, Users, ExternalLink, PlusCircle, Link2, Loader2, Trash2, Pencil, Download, FileText, X, ArrowLeft } from "lucide-react";
+import { Search, Minus, Plus, Clock, Users, ExternalLink, PlusCircle, Link2, Loader2, Trash2, Pencil, Download, FileText, X, ArrowLeft, Camera, FileUp } from "lucide-react";
 import { Dialog, DialogContent, DialogTrigger, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -202,26 +202,16 @@ export default function Recipes() {
           <button
             key={category.id}
             onClick={() => setSelectedCategory(category.id)}
-            className="relative aspect-square rounded-xl overflow-hidden group active:scale-[0.98] transition-transform shadow-md"
-            style={{ backgroundColor: '#F37021' }}
+            className="flex flex-col items-center justify-center gap-1 p-4 rounded-xl border border-border bg-card shadow-sm hover:shadow-md active:scale-[0.98] transition-all"
             data-testid={`category-${category.id.toLowerCase()}`}
           >
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-white text-7xl font-heading font-bold opacity-90 select-none">
-                {category.icon}
-              </span>
-              <span className="absolute top-3 right-3 text-3xl opacity-80">
-                {category.symbol}
-              </span>
-            </div>
-            <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/40 to-transparent">
-              <h3 className="text-white font-heading font-bold text-base leading-tight drop-shadow-md">
-                {category.label}
-              </h3>
-              <span className="text-xs text-white/90">
-                {recipeCounts[category.id] || 0} Rezepte
-              </span>
-            </div>
+            <span className="text-4xl mb-1">{category.symbol}</span>
+            <h3 className="font-heading font-bold text-sm text-center leading-tight">
+              {category.label}
+            </h3>
+            <span className="text-xs text-muted-foreground">
+              {recipeCounts[category.id] || 0} Rezepte
+            </span>
           </button>
         ))}
       </div>
@@ -235,9 +225,16 @@ function AddRecipeDialog({ defaultCategory }: { defaultCategory?: string }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [category, setCategory] = useState<string>(defaultCategory || "Mains");
+  const [category, setCategory] = useState<string>(defaultCategory || "MainMeat");
   const [importUrl, setImportUrl] = useState("");
   const [importing, setImporting] = useState(false);
+
+  // OCR state
+  const [ocrProcessing, setOcrProcessing] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const [ocrText, setOcrText] = useState("");
+  const [ocrParsed, setOcrParsed] = useState<any>(null);
+  const [ocrCategory, setOcrCategory] = useState<string>("MainMeat");
 
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -264,24 +261,87 @@ function AddRecipeDialog({ defaultCategory }: { defaultCategory?: string }) {
   const handleImport = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!importUrl) return;
-    
+
     setImporting(true);
     try {
       const recipe = await importRecipe(importUrl);
-      toast({ 
-        title: "Import erfolgreich!", 
-        description: `"${recipe.name}" wurde importiert.` 
+      toast({
+        title: "Import erfolgreich!",
+        description: `"${recipe.name}" wurde importiert.`
       });
       setOpen(false);
       setImportUrl("");
     } catch (error: any) {
-      toast({ 
-        title: "Import fehlgeschlagen", 
-        description: error.message, 
-        variant: "destructive" 
+      toast({
+        title: "Import fehlgeschlagen",
+        description: error.message,
+        variant: "destructive"
       });
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleOcrFile = async (file: File) => {
+    setOcrProcessing(true);
+    setOcrProgress(0);
+    setOcrText("");
+    setOcrParsed(null);
+
+    try {
+      let text: string;
+
+      if (file.type === "application/pdf") {
+        const { extractTextFromPdf } = await import("@/lib/ocr");
+        text = await extractTextFromPdf(file);
+      } else {
+        const { extractTextFromImage } = await import("@/lib/ocr");
+        text = await extractTextFromImage(file, (p) => setOcrProgress(p));
+      }
+
+      setOcrText(text);
+
+      // Parse the text
+      const { parseRecipeText } = await import("@/lib/recipeParser");
+      const parsed = parseRecipeText(text);
+      setOcrParsed(parsed);
+
+      // Auto-categorize
+      const { autoCategorize } = await import("@shared/categorizer");
+      const detectedCat = autoCategorize(
+        parsed.name,
+        parsed.ingredients.map((i: any) => i.name),
+        parsed.steps
+      );
+      setOcrCategory(detectedCat);
+    } catch (error: any) {
+      toast({ title: "OCR fehlgeschlagen", description: error.message, variant: "destructive" });
+    } finally {
+      setOcrProcessing(false);
+    }
+  };
+
+  const handleOcrSave = async () => {
+    if (!ocrParsed) return;
+
+    try {
+      await addRecipe({
+        name: ocrParsed.name,
+        category: ocrCategory,
+        portions: ocrParsed.portions || 4,
+        prepTime: ocrParsed.prepTime || 0,
+        image: null,
+        sourceUrl: null,
+        steps: ocrParsed.steps || [],
+        allergens: [],
+        ingredientsList: ocrParsed.ingredients || []
+      });
+      toast({ title: "Rezept gespeichert", description: `"${ocrParsed.name}" wurde erstellt.` });
+      setOpen(false);
+      setOcrText("");
+      setOcrParsed(null);
+    } catch (error: any) {
+      toast({ title: "Fehler", description: error.message, variant: "destructive" });
     }
   };
 
@@ -292,27 +352,30 @@ function AddRecipeDialog({ defaultCategory }: { defaultCategory?: string }) {
           <PlusCircle className="h-6 w-6" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>{t("addRecipe")}</DialogTitle>
         </DialogHeader>
-        
-        <Tabs defaultValue="import" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="import" className="gap-2">
-              <Link2 className="h-4 w-4" /> Import
+
+        <Tabs defaultValue="import" className="w-full flex-1 overflow-hidden flex flex-col">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="import" className="gap-1 text-xs">
+              <Link2 className="h-3.5 w-3.5" /> Import
             </TabsTrigger>
-            <TabsTrigger value="manual">Manuell</TabsTrigger>
+            <TabsTrigger value="ocr" className="gap-1 text-xs">
+              <Camera className="h-3.5 w-3.5" /> Foto/PDF
+            </TabsTrigger>
+            <TabsTrigger value="manual" className="text-xs">Manuell</TabsTrigger>
           </TabsList>
-          
+
           <TabsContent value="import" className="mt-4">
             <form onSubmit={handleImport} className="space-y-4">
               <div className="space-y-2">
                 <Label>Rezept-URL</Label>
-                <Input 
-                  type="url" 
-                  value={importUrl} 
-                  onChange={(e) => setImportUrl(e.target.value)} 
+                <Input
+                  type="url"
+                  value={importUrl}
+                  onChange={(e) => setImportUrl(e.target.value)}
                   placeholder="https://www.chefkoch.de/rezepte/..."
                   required
                 />
@@ -326,7 +389,161 @@ function AddRecipeDialog({ defaultCategory }: { defaultCategory?: string }) {
               </Button>
             </form>
           </TabsContent>
-          
+
+          <TabsContent value="ocr" className="mt-4 flex-1 overflow-y-auto">
+            <div className="space-y-4">
+              {!ocrParsed && !ocrProcessing && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Foto aufnehmen oder auswählen</Label>
+                    <div className="flex gap-2">
+                      <label className="flex-1 cursor-pointer">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleOcrFile(file);
+                          }}
+                        />
+                        <div className="flex items-center justify-center gap-2 border-2 border-dashed rounded-lg p-4 hover:border-primary transition-colors">
+                          <Camera className="h-5 w-5 text-muted-foreground" />
+                          <span className="text-sm text-muted-foreground">Kamera / Bild</span>
+                        </div>
+                      </label>
+                      <label className="flex-1 cursor-pointer">
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleOcrFile(file);
+                          }}
+                        />
+                        <div className="flex items-center justify-center gap-2 border-2 border-dashed rounded-lg p-4 hover:border-primary transition-colors">
+                          <FileUp className="h-5 w-5 text-muted-foreground" />
+                          <span className="text-sm text-muted-foreground">PDF</span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Fotografieren Sie ein Rezept oder laden Sie ein PDF hoch. Der Text wird automatisch erkannt und in ein Rezept umgewandelt.
+                  </p>
+                </div>
+              )}
+
+              {ocrProcessing && (
+                <div className="text-center py-8 space-y-3">
+                  <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+                  <p className="text-sm text-muted-foreground">Text wird erkannt...</p>
+                  {ocrProgress > 0 && (
+                    <div className="w-full bg-secondary rounded-full h-2">
+                      <div
+                        className="bg-primary h-2 rounded-full transition-all"
+                        style={{ width: `${ocrProgress}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {ocrParsed && !ocrProcessing && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Erkannter Name</Label>
+                    <Input
+                      value={ocrParsed.name}
+                      onChange={(e) => setOcrParsed({ ...ocrParsed, name: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Kategorie (automatisch erkannt)</Label>
+                    <Select value={ocrCategory} onValueChange={setOcrCategory}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CATEGORIES.map(cat => (
+                          <SelectItem key={cat.id} value={cat.id}>
+                            {cat.symbol} {cat.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Portionen</Label>
+                      <Input
+                        type="number"
+                        value={ocrParsed.portions}
+                        onChange={(e) => setOcrParsed({ ...ocrParsed, portions: parseInt(e.target.value) || 4 })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Zeit (Min)</Label>
+                      <Input
+                        type="number"
+                        value={ocrParsed.prepTime}
+                        onChange={(e) => setOcrParsed({ ...ocrParsed, prepTime: parseInt(e.target.value) || 0 })}
+                      />
+                    </div>
+                  </div>
+
+                  {ocrParsed.ingredients.length > 0 && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">Erkannte Zutaten ({ocrParsed.ingredients.length})</Label>
+                      <div className="max-h-32 overflow-y-auto border rounded p-2 text-xs space-y-1">
+                        {ocrParsed.ingredients.map((ing: any, i: number) => (
+                          <div key={i} className="text-muted-foreground">
+                            {ing.amount} {ing.unit} {ing.name}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {ocrParsed.steps.length > 0 && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">Erkannte Schritte ({ocrParsed.steps.length})</Label>
+                      <div className="max-h-32 overflow-y-auto border rounded p-2 text-xs space-y-1">
+                        {ocrParsed.steps.map((step: string, i: number) => (
+                          <div key={i} className="text-muted-foreground">
+                            {i + 1}. {step}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {ocrText && (
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-muted-foreground">Rohtext anzeigen</summary>
+                      <pre className="mt-1 p-2 bg-secondary rounded text-[10px] max-h-24 overflow-y-auto whitespace-pre-wrap">
+                        {ocrText}
+                      </pre>
+                    </details>
+                  )}
+
+                  <div className="flex gap-2">
+                    <Button onClick={handleOcrSave} className="flex-1">
+                      Rezept speichern
+                    </Button>
+                    <Button variant="outline" onClick={() => { setOcrParsed(null); setOcrText(""); }}>
+                      Zurück
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+
           <TabsContent value="manual" className="mt-4">
             <form onSubmit={handleManualSubmit} className="space-y-4">
               <div className="space-y-2">

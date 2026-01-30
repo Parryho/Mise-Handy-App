@@ -5,16 +5,16 @@ import { z } from "zod";
 
 // Recipe Categories - Single source of truth for client and server
 export const RECIPE_CATEGORIES = [
-  { id: "Soups", label: "Suppen", icon: "S", symbol: "🥄" },
-  { id: "Starters", label: "Vorspeisen", icon: "V", symbol: "🍽️" },
-  { id: "Mains", label: "Hauptspeise Fleisch", icon: "H", symbol: "🥩" },
-  { id: "MainsVeg", label: "Hauptspeise Veg", icon: "H", symbol: "🥗" },
-  { id: "Sides", label: "Beilagen", icon: "B", symbol: "🥔" },
-  { id: "Desserts", label: "Desserts", icon: "D", symbol: "🍰" },
-  { id: "Salads", label: "Salate", icon: "S", symbol: "🥬" },
-  { id: "Breakfast", label: "Frühstück", icon: "F", symbol: "☕" },
-  { id: "Snacks", label: "Snacks", icon: "S", symbol: "🥨" },
-  { id: "Drinks", label: "Getränke", icon: "G", symbol: "🍹" },
+  { id: "ClearSoups", label: "Klare Suppen", symbol: "🍜" },
+  { id: "CreamSoups", label: "Cremesuppen", symbol: "🥣" },
+  { id: "MainMeat", label: "Haupt-Fleisch", symbol: "🥩" },
+  { id: "MainVegan", label: "Haupt-Vegan/Vegi", symbol: "🥦" },
+  { id: "Sides", label: "Beilagen", symbol: "🥔" },
+  { id: "ColdSauces", label: "Kalte Saucen", symbol: "🫙" },
+  { id: "HotSauces", label: "Warme Saucen", symbol: "🍲" },
+  { id: "Salads", label: "Salate", symbol: "🥬" },
+  { id: "HotDesserts", label: "Warme Dessert", symbol: "🍮" },
+  { id: "ColdDesserts", label: "Kalte Dessert", symbol: "🍨" },
 ] as const;
 
 export type RecipeCategoryId = typeof RECIPE_CATEGORIES[number]["id"];

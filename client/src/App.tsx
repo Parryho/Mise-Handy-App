@@ -15,7 +15,6 @@ import Schedule from "@/pages/Schedule";
 import MenuPlanPage from "@/pages/MenuPlan";
 import Today from "@/pages/Today";
 import Login from "@/pages/Login";
-import Register from "@/pages/Register";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -53,16 +52,11 @@ function Router() {
   return (
     <Switch>
       <Route path="/login">
-        {user ? <Redirect to="/" /> : <Login />}
-      </Route>
-      <Route path="/register">
-        {user ? <Redirect to="/" /> : <Register />}
+        {user ? <Redirect to="/today" /> : <Login />}
       </Route>
       <Route path="/">
         {user ? (
-          <Layout>
-            <Dashboard />
-          </Layout>
+          <Redirect to="/today" />
         ) : (
           <Redirect to="/login" />
         )}

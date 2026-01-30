@@ -35,20 +35,20 @@ const MEALS = [
 ];
 
 const LUNCH_COURSES = [
-  { key: "soup", de: "Suppe", category: "Soups" },
-  { key: "main_meat", de: "Hauptspeise (Fleisch)", category: "Mains" },
-  { key: "side1", de: "Beilage 1", category: "Sides" },
-  { key: "side2", de: "Beilage 2", category: "Sides" },
-  { key: "main_veg", de: "Hauptspeise (Vegetarisch)", category: "Mains" },
-  { key: "dessert", de: "Dessert", category: "Desserts" },
+  { key: "soup", de: "Suppe", categories: ["ClearSoups", "CreamSoups"] },
+  { key: "main_meat", de: "Hauptspeise (Fleisch)", categories: ["MainMeat"] },
+  { key: "side1", de: "Beilage 1", categories: ["Sides"] },
+  { key: "side2", de: "Beilage 2", categories: ["Sides"] },
+  { key: "main_veg", de: "Hauptspeise (Vegetarisch)", categories: ["MainVegan"] },
+  { key: "dessert", de: "Dessert", categories: ["HotDesserts", "ColdDesserts"] },
 ];
 
 const DINNER_COURSES = [
-  { key: "soup", de: "Suppe", category: "Soups" },
-  { key: "main_meat", de: "Hauptspeise (Fleisch)", category: "Mains" },
-  { key: "side1", de: "Beilage 1", category: "Sides" },
-  { key: "main_veg", de: "Hauptspeise (Vegetarisch)", category: "Mains" },
-  { key: "dessert", de: "Dessert", category: "Desserts" },
+  { key: "soup", de: "Suppe", categories: ["ClearSoups", "CreamSoups"] },
+  { key: "main_meat", de: "Hauptspeise (Fleisch)", categories: ["MainMeat"] },
+  { key: "side1", de: "Beilage 1", categories: ["Sides"] },
+  { key: "main_veg", de: "Hauptspeise (Vegetarisch)", categories: ["MainVegan"] },
+  { key: "dessert", de: "Dessert", categories: ["HotDesserts", "ColdDesserts"] },
 ];
 
 function formatDate(date: Date): string {
@@ -124,7 +124,7 @@ export default function MenuPlan() {
   const getCoursesForMeal = (meal: string) => {
     if (meal === 'lunch') return LUNCH_COURSES;
     if (meal === 'dinner') return DINNER_COURSES;
-    return [{ key: "main", de: "Gericht", category: null }];
+    return [{ key: "main", de: "Gericht", categories: null as string[] | null }];
   };
 
   return (
@@ -205,7 +205,7 @@ function MealSection({ meal, weekDates, plans, recipes, getCoursesForMeal, getPl
   weekDates: Date[];
   plans: MenuPlan[];
   recipes: any[];
-  getCoursesForMeal: (meal: string) => { key: string; de: string; category: string | null }[];
+  getCoursesForMeal: (meal: string) => { key: string; de: string; categories: string[] | null }[];
   getPlan: (date: string, meal: string, course: string) => MenuPlan | undefined;
   getRecipeName: (id: number | null) => string | null;
   onSave: () => void;
@@ -274,14 +274,14 @@ function MealSection({ meal, weekDates, plans, recipes, getCoursesForMeal, getPl
                     const isToday = formatDate(new Date()) === dateStr;
                     
                     return (
-                      <MenuCell 
+                      <MenuCell
                         key={`${dateStr}-${course.key}`}
                         date={dateStr}
                         dayName={WEEKDAYS[idx]}
                         dayNum={date.getDate()}
                         meal={meal.key}
                         course={course.key}
-                        courseCategory={course.category}
+                        courseCategories={course.categories}
                         plan={plan}
                         recipeName={recipeName}
                         recipes={recipes}
@@ -301,13 +301,13 @@ function MealSection({ meal, weekDates, plans, recipes, getCoursesForMeal, getPl
   );
 }
 
-function MenuCell({ date, dayName, dayNum, meal, course, courseCategory, plan, recipeName, recipes, isToday, onSave, showDayHeader }: {
+function MenuCell({ date, dayName, dayNum, meal, course, courseCategories, plan, recipeName, recipes, isToday, onSave, showDayHeader }: {
   date: string;
   dayName: string;
   dayNum: number;
   meal: string;
   course: string;
-  courseCategory: string | null;
+  courseCategories: string[] | null;
   plan: MenuPlan | undefined;
   recipeName: string | null;
   recipes: any[];
@@ -326,8 +326,8 @@ function MenuCell({ date, dayName, dayNum, meal, course, courseCategory, plan, r
     setPortions(String(plan?.portions || 10));
   }, [plan]);
 
-  const filteredRecipes = courseCategory 
-    ? recipes.filter(r => r.category === courseCategory || !courseCategory)
+  const filteredRecipes = courseCategories
+    ? recipes.filter(r => courseCategories.includes(r.category))
     : recipes;
 
   const handleSave = async () => {
@@ -423,8 +423,8 @@ function MenuCell({ date, dayName, dayNum, meal, course, courseCategory, plan, r
                 )}
               </SelectContent>
             </Select>
-            {courseCategory && (
-              <p className="text-xs text-muted-foreground">Zeigt nur Rezepte der Kategorie: {courseCategory}</p>
+            {courseCategories && (
+              <p className="text-xs text-muted-foreground">Zeigt nur Rezepte der Kategorien: {courseCategories.join(", ")}</p>
             )}
           </div>
           

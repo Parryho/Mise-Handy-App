@@ -1,27 +1,27 @@
 import { createContext, useContext, useState, useEffect } from "react";
 
 // Translations
-export type Language = "de" | "en";
+export type Language = "de" | "en" | "tr" | "uk";
 
 // EU-14 Allergen codes (A-N) per regulation 1169/2011
-export const ALLERGENS = {
-  A: { code: "A", de: "Glutenhaltiges Getreide", en: "Gluten" },
-  B: { code: "B", de: "Krebstiere", en: "Crustaceans" },
-  C: { code: "C", de: "Eier", en: "Eggs" },
-  D: { code: "D", de: "Fisch", en: "Fish" },
-  E: { code: "E", de: "Erdnüsse", en: "Peanuts" },
-  F: { code: "F", de: "Soja", en: "Soy" },
-  G: { code: "G", de: "Milch", en: "Milk" },
-  H: { code: "H", de: "Schalenfrüchte", en: "Nuts" },
-  I: { code: "I", de: "Sellerie", en: "Celery" },
-  J: { code: "J", de: "Senf", en: "Mustard" },
-  K: { code: "K", de: "Sesam", en: "Sesame" },
-  L: { code: "L", de: "Sulfite", en: "Sulphites" },
-  M: { code: "M", de: "Lupinen", en: "Lupin" },
-  N: { code: "N", de: "Weichtiere", en: "Molluscs" },
-} as const;
+export const ALLERGENS: Record<string, { code: string; [lang: string]: string }> = {
+  A: { code: "A", de: "Glutenhaltiges Getreide", en: "Gluten", tr: "Gluten", uk: "Глютен" },
+  B: { code: "B", de: "Krebstiere", en: "Crustaceans", tr: "Kabuklular", uk: "Ракоподібні" },
+  C: { code: "C", de: "Eier", en: "Eggs", tr: "Yumurta", uk: "Яйця" },
+  D: { code: "D", de: "Fisch", en: "Fish", tr: "Balik", uk: "Риба" },
+  E: { code: "E", de: "Erdnüsse", en: "Peanuts", tr: "Yer fistigi", uk: "Арахіс" },
+  F: { code: "F", de: "Soja", en: "Soy", tr: "Soya", uk: "Соя" },
+  G: { code: "G", de: "Milch", en: "Milk", tr: "Süt", uk: "Молоко" },
+  H: { code: "H", de: "Schalenfrüchte", en: "Nuts", tr: "Kabuklu yemisler", uk: "Горіхи" },
+  I: { code: "I", de: "Sellerie", en: "Celery", tr: "Kereviz", uk: "Селера" },
+  J: { code: "J", de: "Senf", en: "Mustard", tr: "Hardal", uk: "Гірчиця" },
+  K: { code: "K", de: "Sesam", en: "Sesame", tr: "Susam", uk: "Кунжут" },
+  L: { code: "L", de: "Sulfite", en: "Sulphites", tr: "Sülfitler", uk: "Сульфіти" },
+  M: { code: "M", de: "Lupinen", en: "Lupin", tr: "Acibakla", uk: "Люпин" },
+  N: { code: "N", de: "Weichtiere", en: "Molluscs", tr: "Yumusakçalar", uk: "Молюски" },
+};
 
-export type AllergenCode = keyof typeof ALLERGENS;
+export type AllergenCode = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" | "N";
 
 const TRANSLATIONS = {
   de: {
@@ -77,15 +77,16 @@ const TRANSLATIONS = {
     addStep: "Schritt hinzufügen",
     visitWebsite: "Website besuchen",
     categories: {
-      Starters: "Vorspeisen",
-      Mains: "Hauptspeisen",
-      Desserts: "Desserts",
+      ClearSoups: "Klare Suppen",
+      CreamSoups: "Cremesuppen",
+      MainMeat: "Haupt-Fleisch",
+      MainVegan: "Haupt-Vegan/Vegi",
       Sides: "Beilagen",
-      Soups: "Suppen",
+      ColdSauces: "Kalte Saucen",
+      HotSauces: "Warme Saucen",
       Salads: "Salate",
-      Drinks: "Getränke",
-      Snacks: "Snacks",
-      Breakfast: "Frühstück"
+      HotDesserts: "Warme Dessert",
+      ColdDesserts: "Kalte Dessert"
     }
   },
   en: {
@@ -141,20 +142,151 @@ const TRANSLATIONS = {
     addStep: "Add Step",
     visitWebsite: "Visit Website",
     categories: {
-      Starters: "Starters",
-      Mains: "Mains",
-      Desserts: "Desserts",
+      ClearSoups: "Clear Soups",
+      CreamSoups: "Cream Soups",
+      MainMeat: "Main Meat",
+      MainVegan: "Main Vegan/Veg",
       Sides: "Sides",
-      Soups: "Soups",
+      ColdSauces: "Cold Sauces",
+      HotSauces: "Hot Sauces",
       Salads: "Salads",
-      Drinks: "Drinks",
-      Snacks: "Snacks",
-      Breakfast: "Breakfast"
+      HotDesserts: "Hot Desserts",
+      ColdDesserts: "Cold Desserts"
+    }
+  },
+  tr: {
+    dashboard: "Genel Bakis",
+    recipes: "Tarifler",
+    haccp: "HACCP",
+    reports: "Raporlar",
+    settings: "Ayarlar",
+    home: "Ana Sayfa",
+    kitchenOverview: "Mutfak Genel Bakisi",
+    activeRecipes: "Aktif Tarifler",
+    pendingChecks: "Bekleyen Kontroller",
+    logTemperature: "Sicaklik Kaydet",
+    morningCheck: "Sabah Kontrolü",
+    quickActions: "Hizli Islemler",
+    recentActivity: "Son Aktiviteler",
+    searchRecipes: "Tarif ara...",
+    portions: "Porsiyon",
+    prepTime: "Hazirlama Süresi",
+    ingredients: "Malzemeler",
+    preparation: "Hazirlama Adimlari",
+    allergens: "Alerjenler",
+    all: "Tümü",
+    save: "Kaydet",
+    cancel: "Iptal",
+    language: "Dil",
+    exportPDF: "PDF Indir",
+    comingSoon: "Yakinda",
+    fridge: "Buzdolabi",
+    temperature: "Sicaklik",
+    status: "Durum",
+    user: "Kullanici",
+    history: "Gecmis",
+    noData: "Veri Yok",
+    logCheck: "Kontrol Kaydet",
+    saveRecord: "Kaydi Kaydet",
+    clear: "Temizle",
+    range: "Aralik",
+    lastCheck: "Son Kontrol",
+    by: "Tarafindan",
+    exportComplete: "Disa Aktarma Tamamlandi",
+    warningRecorded: "Uyari Kaydedildi",
+    temperatureRecorded: "Sicaklik Kaydedildi",
+    selectLanguage: "Dil Seçin",
+    filterByAllergen: "Alerjene Göre Filtrele",
+    noAllergens: "Alerjen Yok",
+    addRecipe: "Tarif Ekle",
+    recipeName: "Tarif Adi",
+    category: "Kategori",
+    image: "Resim",
+    sourceUrl: "Web Sitesi Linki (istege bagli)",
+    addIngredient: "Malzeme Ekle",
+    addStep: "Adim Ekle",
+    visitWebsite: "Web Sitesini Ziyaret Et",
+    categories: {
+      ClearSoups: "Berrak Çorbalar",
+      CreamSoups: "Kremali Çorbalar",
+      MainMeat: "Ana Yemek - Et",
+      MainVegan: "Ana Yemek - Vegan/Vejeteryan",
+      Sides: "Garnitürler",
+      ColdSauces: "Soguk Soslar",
+      HotSauces: "Sicak Soslar",
+      Salads: "Salatalar",
+      HotDesserts: "Sicak Tatlilar",
+      ColdDesserts: "Soguk Tatlilar"
+    }
+  },
+  uk: {
+    dashboard: "Огляд",
+    recipes: "Рецепти",
+    haccp: "HACCP",
+    reports: "Звіти",
+    settings: "Налаштування",
+    home: "Головна",
+    kitchenOverview: "Огляд кухні",
+    activeRecipes: "Активні рецепти",
+    pendingChecks: "Очікують перевірки",
+    logTemperature: "Записати температуру",
+    morningCheck: "Ранковий огляд",
+    quickActions: "Швидкі дії",
+    recentActivity: "Остання активність",
+    searchRecipes: "Шукати рецепти...",
+    portions: "Порції",
+    prepTime: "Час приготування",
+    ingredients: "Інгредієнти",
+    preparation: "Кроки приготування",
+    allergens: "Алергени",
+    all: "Всі",
+    save: "Зберегти",
+    cancel: "Скасувати",
+    language: "Мова",
+    exportPDF: "Експорт PDF",
+    comingSoon: "Незабаром",
+    fridge: "Холодильник",
+    temperature: "Температура",
+    status: "Статус",
+    user: "Користувач",
+    history: "Історія",
+    noData: "Немає даних",
+    logCheck: "Записати перевірку",
+    saveRecord: "Зберегти запис",
+    clear: "Очистити",
+    range: "Діапазон",
+    lastCheck: "Остання перевірка",
+    by: "Від",
+    exportComplete: "Експорт завершено",
+    warningRecorded: "Попередження записано",
+    temperatureRecorded: "Температуру записано",
+    selectLanguage: "Обрати мову",
+    filterByAllergen: "Фільтр за алергеном",
+    noAllergens: "Без алергенів",
+    addRecipe: "Додати рецепт",
+    recipeName: "Назва рецепту",
+    category: "Категорія",
+    image: "Зображення",
+    sourceUrl: "Посилання (необов'язково)",
+    addIngredient: "Додати інгредієнт",
+    addStep: "Додати крок",
+    visitWebsite: "Відвідати сайт",
+    categories: {
+      ClearSoups: "Прозорі супи",
+      CreamSoups: "Крем-супи",
+      MainMeat: "Основна страва - м'ясо",
+      MainVegan: "Основна страва - веган/вег",
+      Sides: "Гарніри",
+      ColdSauces: "Холодні соуси",
+      HotSauces: "Гарячі соуси",
+      Salads: "Салати",
+      HotDesserts: "Гарячі десерти",
+      ColdDesserts: "Холодні десерти"
     }
   }
 };
 
-type TranslationSchema = typeof TRANSLATIONS.en;
+type TranslationSchema = typeof TRANSLATIONS.de;
 // Exclude nested objects to ensure t() always returns a string
 type StringKeys = { [K in keyof TranslationSchema]: TranslationSchema[K] extends string ? K : never }[keyof TranslationSchema];
 
@@ -170,17 +302,23 @@ export const useTranslation = () => {
   }, [lang]);
 
   const t = (key: StringKeys | string): string => {
-    const val = TRANSLATIONS[lang][key as keyof TranslationSchema];
+    const translations = TRANSLATIONS[lang] as Record<string, any>;
+    const val = translations[key];
     if (typeof val === 'string') {
       return val;
     }
-    // Fallback for missing keys or if a key points to an object unexpectedly
+    // Fallback to German
+    const fallback = (TRANSLATIONS.de as Record<string, any>)[key];
+    if (typeof fallback === 'string') {
+      return fallback;
+    }
     return key;
   };
 
   const tCat = (cat: string) => {
-    const catMap = TRANSLATIONS[lang].categories as Record<string, string>;
-    return catMap[cat] || cat;
+    const translations = TRANSLATIONS[lang] as Record<string, any>;
+    const catMap = translations.categories as Record<string, string> | undefined;
+    return catMap?.[cat] || (TRANSLATIONS.de.categories as Record<string, string>)[cat] || cat;
   };
 
   return { lang, setLang, t, tCat };

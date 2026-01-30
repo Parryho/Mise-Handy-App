@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect } from "react";
 import { AllergenCode } from "./i18n";
 
 // Types matching the backend
-export type Category = "Starters" | "Mains" | "Desserts" | "Sides";
+export type Category = "ClearSoups" | "CreamSoups" | "MainMeat" | "MainVegan" | "Sides" | "ColdSauces" | "HotSauces" | "Salads" | "HotDesserts" | "ColdDesserts";
 
 export interface Ingredient {
   id?: number;

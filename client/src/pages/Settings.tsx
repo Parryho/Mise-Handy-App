@@ -2,11 +2,13 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Users, Shield, Settings2, Check, Globe, Trash2, UserCheck, UserX, LogOut } from "lucide-react";
+import { Loader2, Users, Shield, Settings2, Check, Globe, Trash2, UserCheck, UserX, LogOut, UserPlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -99,6 +101,14 @@ export default function SettingsPage() {
                   <RadioGroupItem value="en" id="en" />
                   <Label htmlFor="en" className="font-medium">English</Label>
                 </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="tr" id="tr" />
+                  <Label htmlFor="tr" className="font-medium">Türkçe</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="uk" id="uk" />
+                  <Label htmlFor="uk" className="font-medium">Українська</Label>
+                </div>
               </RadioGroup>
             </CardContent>
           </Card>
@@ -126,6 +136,14 @@ function UserManagement() {
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
 
+  // Add user form state
+  const [addOpen, setAddOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newRole, setNewRole] = useState("koch");
+  const [addLoading, setAddLoading] = useState(false);
+
   const fetchUsers = async () => {
     setLoading(true);
     try {
@@ -144,6 +162,34 @@ function UserManagement() {
   useEffect(() => {
     fetchUsers();
   }, []);
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddLoading(true);
+    try {
+      const res = await fetch("/api/admin/users/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName, email: newEmail, password: newPassword, role: newRole }),
+      });
+      if (res.ok) {
+        toast({ title: "Benutzer erstellt" });
+        setAddOpen(false);
+        setNewName("");
+        setNewEmail("");
+        setNewPassword("");
+        setNewRole("koch");
+        fetchUsers();
+      } else {
+        const data = await res.json();
+        toast({ title: "Fehler", description: data.error, variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: "Fehler", description: error.message, variant: "destructive" });
+    } finally {
+      setAddLoading(false);
+    }
+  };
 
   const handleApprove = async (userId: string, approve: boolean) => {
     try {
@@ -203,6 +249,51 @@ function UserManagement() {
 
   return (
     <div className="space-y-4">
+      {/* Add User Button + Dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogTrigger asChild>
+          <Button className="w-full gap-2">
+            <UserPlus className="h-4 w-4" /> Benutzer anlegen
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Neuen Benutzer anlegen</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleAddUser} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Max Mustermann" required />
+            </div>
+            <div className="space-y-2">
+              <Label>E-Mail</Label>
+              <Input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="name@email.at" required />
+            </div>
+            <div className="space-y-2">
+              <Label>Passwort</Label>
+              <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Mind. 6 Zeichen" required minLength={6} />
+            </div>
+            <div className="space-y-2">
+              <Label>Rolle</Label>
+              <Select value={newRole} onValueChange={setNewRole}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLES.map(role => (
+                    <SelectItem key={role.key} value={role.key}>{role.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button type="submit" className="w-full" disabled={addLoading}>
+              {addLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <UserPlus className="h-4 w-4 mr-2" />}
+              Benutzer erstellen
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {pendingUsers.length > 0 && (
         <Card className="border-orange-500/50">
           <CardHeader className="py-3">
@@ -251,7 +342,7 @@ function UserManagement() {
               {activeUsers.map(user => {
                 const roleInfo = ROLES.find(r => r.key === user.role);
                 const isCurrentUser = user.id === currentUser?.id;
-                
+
                 return (
                   <div key={user.id} className="flex items-center justify-between p-2 bg-secondary/30 rounded">
                     <div className="flex items-center gap-2">
@@ -265,8 +356,8 @@ function UserManagement() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Select 
-                        value={user.role} 
+                      <Select
+                        value={user.role}
                         onValueChange={(v) => handleRoleChange(user.id, v)}
                         disabled={isCurrentUser}
                       >

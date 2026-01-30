@@ -7,6 +7,9 @@ import {
   insertGuestCountSchema, insertCateringEventSchema, insertStaffSchema, insertShiftTypeSchema, insertScheduleEntrySchema, insertMenuPlanSchema,
   registerUserSchema, loginUserSchema, insertTaskSchema, updateTaskStatusSchema
 } from "@shared/schema";
+import { autoCategorize } from "@shared/categorizer";
+import multer from "multer";
+import pdfParse from "pdf-parse";
 import bcrypt from "bcryptjs";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -64,6 +67,26 @@ export async function registerRoutes(
 
   // Ensure session table exists in PostgreSQL
   await ensureSessionTable();
+
+  // Migrate old recipe categories to new ones
+  try {
+    const categoryMigrations: Record<string, string> = {
+      "Soups": "ClearSoups",
+      "Starters": "Salads",
+      "Mains": "MainMeat",
+      "MainsVeg": "MainVegan",
+      "Desserts": "ColdDesserts",
+      "Breakfast": "Sides",
+      "Snacks": "Sides",
+      "Drinks": "ColdSauces",
+    };
+    for (const [oldCat, newCat] of Object.entries(categoryMigrations)) {
+      await pool.query(`UPDATE recipes SET category = $1 WHERE category = $2`, [newCat, oldCat]);
+    }
+    console.log("Category migration completed.");
+  } catch (err) {
+    console.error("Category migration failed:", err);
+  }
 
   // Session middleware with PostgreSQL store
   const isProduction = process.env.NODE_ENV === "production";
@@ -287,6 +310,46 @@ export async function registerRoutes(
     });
   });
 
+  // Create user (admin only) - replaces self-registration
+  app.post("/api/admin/users/create", requireAdmin, async (req, res) => {
+    try {
+      const { name, email, password, role } = req.body;
+      if (!name || !email || !password) {
+        return res.status(400).json({ error: "Name, E-Mail und Passwort erforderlich" });
+      }
+      if (password.length < 6) {
+        return res.status(400).json({ error: "Passwort muss mindestens 6 Zeichen haben" });
+      }
+
+      const existing = await storage.getUserByEmail(email);
+      if (existing) {
+        return res.status(400).json({ error: "E-Mail-Adresse bereits registriert" });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const user = await storage.createUser({
+        username: email,
+        password: hashedPassword,
+        name,
+        email,
+        position: "Koch",
+        role: role || "koch",
+        isApproved: true,
+      });
+
+      res.status(201).json({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        position: user.position,
+        role: user.role,
+        isApproved: user.isApproved,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   // Delete user (admin only)
   app.delete("/api/admin/users/:id", requireAdmin, async (req, res) => {
     const currentUser = (req as any).user;
@@ -439,10 +502,17 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Rezept konnte nicht von URL geladen werden" });
       }
 
+      // Auto-categorize based on recipe content
+      const detectedCategory = autoCategorize(
+        scraped.name,
+        scraped.ingredients.map(i => i.name),
+        scraped.steps
+      );
+
       // Create the recipe
       const recipe = await storage.createRecipe({
         name: scraped.name,
-        category: "Mains",
+        category: detectedCategory,
         portions: scraped.portions,
         prepTime: scraped.prepTime,
         image: scraped.image,
@@ -486,7 +556,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Maximal 100 Rezepte pro Import" });
       }
 
-      const validCategories = ["Soups", "Starters", "Mains", "MainsVeg", "Sides", "Desserts", "Salads", "Breakfast", "Snacks", "Drinks"];
+      const validCategories = ["ClearSoups", "CreamSoups", "MainMeat", "MainVegan", "Sides", "ColdSauces", "HotSauces", "Salads", "HotDesserts", "ColdDesserts"];
       const created: any[] = [];
       const errors: { index: number; error: string }[] = [];
 
@@ -552,6 +622,21 @@ export async function registerRoutes(
     const recipeId = parseInt(getParam(req.params.id), 10);
     const ingredients = await storage.getIngredients(recipeId);
     res.json(ingredients);
+  });
+
+  // === OCR PDF Extraction ===
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+  app.post("/api/ocr/pdf", requireAuth, upload.single("file"), async (req: any, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "Keine Datei hochgeladen" });
+      }
+      const data = await pdfParse(req.file.buffer);
+      res.json({ text: data.text });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "PDF-Extraktion fehlgeschlagen" });
+    }
   });
 
   // === FRIDGES ===
@@ -664,75 +749,75 @@ export async function registerRoutes(
 
       const austrianRecipes = [
         // SOUPS (20+)
-        { name: "Frittatensuppe", category: "Soups", portions: 4, prepTime: 30, allergens: ["A", "C", "G"], steps: ["Palatschinken backen", "In Streifen schneiden", "Mit heißer Rindssuppe servieren"] },
-        { name: "Leberknödelsuppe", category: "Soups", portions: 4, prepTime: 45, allergens: ["A", "C", "G"], steps: ["Leber faschieren", "Mit Semmelbröseln und Ei vermengen", "Knödel formen", "In Suppe kochen"] },
-        { name: "Grießnockerlsuppe", category: "Soups", portions: 4, prepTime: 25, allergens: ["A", "C", "G"], steps: ["Butter schaumig rühren", "Grieß und Ei untermengen", "Nockerl formen", "In Suppe kochen"] },
-        { name: "Knoblauchcremesuppe", category: "Soups", portions: 4, prepTime: 30, allergens: ["A", "G"], steps: ["Knoblauch anrösten", "Mit Suppe aufgießen", "Obers hinzufügen", "Pürieren"] },
-        { name: "Kürbiscremesuppe", category: "Soups", portions: 4, prepTime: 35, allergens: ["G"], steps: ["Kürbis würfeln", "Mit Zwiebeln anbraten", "Aufgießen und pürieren", "Mit Kernöl verfeinern"] },
-        { name: "Selleriecremesuppe", category: "Soups", portions: 4, prepTime: 30, allergens: ["G", "I"], steps: ["Sellerie kochen", "Pürieren", "Mit Obers verfeinern"] },
-        { name: "Schwammerlsuppe", category: "Soups", portions: 4, prepTime: 35, allergens: ["G"], steps: ["Pilze putzen", "Anbraten", "Mit Suppe aufgießen", "Mit Sauerrahm verfeinern"] },
-        { name: "Erdäpfelsuppe", category: "Soups", portions: 4, prepTime: 40, allergens: ["G", "I"], steps: ["Kartoffeln würfeln", "Mit Lauch anbraten", "Kochen und pürieren"] },
-        { name: "Klare Rindsuppe", category: "Soups", portions: 6, prepTime: 180, allergens: ["I"], steps: ["Rindfleisch und Knochen kochen", "Wurzelgemüse hinzufügen", "Abseihen", "Würzen"] },
-        { name: "Karfiolcremesuppe", category: "Soups", portions: 4, prepTime: 30, allergens: ["G"], steps: ["Karfiol kochen", "Pürieren", "Mit Obers verfeinern", "Mit Muskat würzen"] },
-        { name: "Spargelcremesuppe", category: "Soups", portions: 4, prepTime: 35, allergens: ["G"], steps: ["Spargel kochen", "Schalen für Fond", "Pürieren", "Mit Obers vollenden"] },
-        { name: "Bärlauchcremesuppe", category: "Soups", portions: 4, prepTime: 25, allergens: ["G"], steps: ["Zwiebeln anbraten", "Bärlauch hinzufügen", "Pürieren", "Mit Sauerrahm servieren"] },
-        { name: "Tomatencremesuppe", category: "Soups", portions: 4, prepTime: 30, allergens: ["G"], steps: ["Tomaten rösten", "Mit Basilikum pürieren", "Obers einrühren"] },
-        { name: "Linsensuppe", category: "Soups", portions: 4, prepTime: 45, allergens: [], steps: ["Linsen mit Gemüse kochen", "Mit Essig abschmecken"] },
-        { name: "Erbsensuppe", category: "Soups", portions: 4, prepTime: 60, allergens: ["I"], steps: ["Erbsen einweichen", "Mit Suppengrün kochen", "Pürieren"] },
-        { name: "Bohnensuppe", category: "Soups", portions: 4, prepTime: 50, allergens: [], steps: ["Weiße Bohnen kochen", "Mit Speck verfeinern"] },
-        { name: "Zwiebelsuppe", category: "Soups", portions: 4, prepTime: 40, allergens: ["A", "G"], steps: ["Zwiebeln karamellisieren", "Mit Suppe aufgießen", "Mit Käsetoast servieren"] },
-        { name: "Nudelsuppe", category: "Soups", portions: 4, prepTime: 20, allergens: ["A", "C"], steps: ["Rindssuppe aufkochen", "Nudeln einlegen", "Schnittlauch darüber"] },
-        { name: "Einmachsuppe", category: "Soups", portions: 4, prepTime: 30, allergens: ["A", "G"], steps: ["Einmach aus Butter und Mehl", "Mit Suppe aufgießen", "Mit Sauerrahm vollenden"] },
-        { name: "Kaspressknödelsuppe", category: "Soups", portions: 4, prepTime: 40, allergens: ["A", "C", "G"], steps: ["Knödel aus Altbrot und Käse formen", "Braten", "In Suppe servieren"] },
+        { name: "Frittatensuppe", category: "ClearSoups", portions: 4, prepTime: 30, allergens: ["A", "C", "G"], steps: ["Palatschinken backen", "In Streifen schneiden", "Mit heißer Rindssuppe servieren"] },
+        { name: "Leberknödelsuppe", category: "ClearSoups", portions: 4, prepTime: 45, allergens: ["A", "C", "G"], steps: ["Leber faschieren", "Mit Semmelbröseln und Ei vermengen", "Knödel formen", "In Suppe kochen"] },
+        { name: "Grießnockerlsuppe", category: "ClearSoups", portions: 4, prepTime: 25, allergens: ["A", "C", "G"], steps: ["Butter schaumig rühren", "Grieß und Ei untermengen", "Nockerl formen", "In Suppe kochen"] },
+        { name: "Knoblauchcremesuppe", category: "CreamSoups", portions: 4, prepTime: 30, allergens: ["A", "G"], steps: ["Knoblauch anrösten", "Mit Suppe aufgießen", "Obers hinzufügen", "Pürieren"] },
+        { name: "Kürbiscremesuppe", category: "CreamSoups", portions: 4, prepTime: 35, allergens: ["G"], steps: ["Kürbis würfeln", "Mit Zwiebeln anbraten", "Aufgießen und pürieren", "Mit Kernöl verfeinern"] },
+        { name: "Selleriecremesuppe", category: "CreamSoups", portions: 4, prepTime: 30, allergens: ["G", "I"], steps: ["Sellerie kochen", "Pürieren", "Mit Obers verfeinern"] },
+        { name: "Schwammerlsuppe", category: "CreamSoups", portions: 4, prepTime: 35, allergens: ["G"], steps: ["Pilze putzen", "Anbraten", "Mit Suppe aufgießen", "Mit Sauerrahm verfeinern"] },
+        { name: "Erdäpfelsuppe", category: "CreamSoups", portions: 4, prepTime: 40, allergens: ["G", "I"], steps: ["Kartoffeln würfeln", "Mit Lauch anbraten", "Kochen und pürieren"] },
+        { name: "Klare Rindsuppe", category: "ClearSoups", portions: 6, prepTime: 180, allergens: ["I"], steps: ["Rindfleisch und Knochen kochen", "Wurzelgemüse hinzufügen", "Abseihen", "Würzen"] },
+        { name: "Karfiolcremesuppe", category: "CreamSoups", portions: 4, prepTime: 30, allergens: ["G"], steps: ["Karfiol kochen", "Pürieren", "Mit Obers verfeinern", "Mit Muskat würzen"] },
+        { name: "Spargelcremesuppe", category: "CreamSoups", portions: 4, prepTime: 35, allergens: ["G"], steps: ["Spargel kochen", "Schalen für Fond", "Pürieren", "Mit Obers vollenden"] },
+        { name: "Bärlauchcremesuppe", category: "CreamSoups", portions: 4, prepTime: 25, allergens: ["G"], steps: ["Zwiebeln anbraten", "Bärlauch hinzufügen", "Pürieren", "Mit Sauerrahm servieren"] },
+        { name: "Tomatencremesuppe", category: "CreamSoups", portions: 4, prepTime: 30, allergens: ["G"], steps: ["Tomaten rösten", "Mit Basilikum pürieren", "Obers einrühren"] },
+        { name: "Linsensuppe", category: "ClearSoups", portions: 4, prepTime: 45, allergens: [], steps: ["Linsen mit Gemüse kochen", "Mit Essig abschmecken"] },
+        { name: "Erbsensuppe", category: "ClearSoups", portions: 4, prepTime: 60, allergens: ["I"], steps: ["Erbsen einweichen", "Mit Suppengrün kochen", "Pürieren"] },
+        { name: "Bohnensuppe", category: "ClearSoups", portions: 4, prepTime: 50, allergens: [], steps: ["Weiße Bohnen kochen", "Mit Speck verfeinern"] },
+        { name: "Zwiebelsuppe", category: "ClearSoups", portions: 4, prepTime: 40, allergens: ["A", "G"], steps: ["Zwiebeln karamellisieren", "Mit Suppe aufgießen", "Mit Käsetoast servieren"] },
+        { name: "Nudelsuppe", category: "ClearSoups", portions: 4, prepTime: 20, allergens: ["A", "C"], steps: ["Rindssuppe aufkochen", "Nudeln einlegen", "Schnittlauch darüber"] },
+        { name: "Einmachsuppe", category: "ClearSoups", portions: 4, prepTime: 30, allergens: ["A", "G"], steps: ["Einmach aus Butter und Mehl", "Mit Suppe aufgießen", "Mit Sauerrahm vollenden"] },
+        { name: "Kaspressknödelsuppe", category: "ClearSoups", portions: 4, prepTime: 40, allergens: ["A", "C", "G"], steps: ["Knödel aus Altbrot und Käse formen", "Braten", "In Suppe servieren"] },
 
         // MAINS - Meat (25+)
-        { name: "Wiener Schnitzel", category: "Mains", portions: 4, prepTime: 30, allergens: ["A", "C"], steps: ["Fleisch klopfen", "Panieren", "In Butterschmalz ausbacken", "Mit Zitrone servieren"] },
-        { name: "Schweinsbraten", category: "Mains", portions: 6, prepTime: 120, allergens: [], steps: ["Schwarte einschneiden", "Würzen", "Im Rohr braten", "Mit Bratensaft servieren"] },
-        { name: "Tafelspitz", category: "Mains", portions: 6, prepTime: 180, allergens: ["L"], steps: ["Rindfleisch mit Suppengemüse kochen", "Mit Schnittlauchsauce servieren", "Apfelkren dazu reichen"] },
-        { name: "Backhendl", category: "Mains", portions: 4, prepTime: 45, allergens: ["A", "C"], steps: ["Hendl zerteilen", "Panieren", "In Fett ausbacken"] },
-        { name: "Rindsgulasch", category: "Mains", portions: 6, prepTime: 120, allergens: [], steps: ["Zwiebeln rösten", "Fleisch anbraten", "Mit Paprika würzen", "Langsam schmoren"] },
-        { name: "Zwiebelrostbraten", category: "Mains", portions: 4, prepTime: 40, allergens: [], steps: ["Rostbraten braten", "Röstzwiebeln zubereiten", "Mit Bratensaft servieren"] },
-        { name: "Stelze", category: "Mains", portions: 4, prepTime: 150, allergens: [], steps: ["Stelze würzen", "Im Rohr knusprig braten", "Mit Kraut servieren"] },
-        { name: "Cordon Bleu", category: "Mains", portions: 4, prepTime: 35, allergens: ["A", "C", "G"], steps: ["Schnitzel füllen", "Mit Schinken und Käse", "Panieren", "Ausbacken"] },
-        { name: "Leberkäse", category: "Mains", portions: 8, prepTime: 90, allergens: [], steps: ["Leberkäse backen", "In Scheiben schneiden", "Mit Senf und Semmel servieren"] },
-        { name: "Beuschel", category: "Mains", portions: 4, prepTime: 90, allergens: ["A"], steps: ["Innereien kochen", "Sauce zubereiten", "Mit Semmelknödel servieren"] },
-        { name: "Blunzengröstl", category: "Mains", portions: 4, prepTime: 30, allergens: ["C"], steps: ["Blutwurst würfeln", "Mit Erdäpfeln braten", "Mit Spiegelei servieren"] },
-        { name: "Kalbsrahmgeschnetzeltes", category: "Mains", portions: 4, prepTime: 35, allergens: ["G"], steps: ["Kalbfleisch schnetzeln", "Anbraten", "Mit Rahmsauce servieren"] },
-        { name: "Altwiener Suppentopf", category: "Mains", portions: 6, prepTime: 120, allergens: ["I"], steps: ["Rindfleisch mit Gemüse kochen", "Als Eintopf servieren"] },
-        { name: "Faschierter Braten", category: "Mains", portions: 6, prepTime: 70, allergens: ["A", "C"], steps: ["Faschiertes würzen", "Formen", "Im Rohr braten"] },
-        { name: "Krautfleckerl mit Speck", category: "Mains", portions: 4, prepTime: 40, allergens: ["A", "C"], steps: ["Kraut dünsten", "Fleckerl kochen", "Mit Speck mischen"] },
-        { name: "Gebackene Leber", category: "Mains", portions: 4, prepTime: 25, allergens: ["A", "C"], steps: ["Leber schneiden", "Panieren", "Ausbacken", "Mit Erdäpfelpüree servieren"] },
-        { name: "Steirisches Wurzelfleisch", category: "Mains", portions: 6, prepTime: 90, allergens: ["L"], steps: ["Schweinfleisch kochen", "Mit Kren servieren", "Wurzelgemüse dazu"] },
-        { name: "Grammelknödel", category: "Mains", portions: 4, prepTime: 50, allergens: ["A", "C"], steps: ["Kartoffelteig zubereiten", "Mit Grammeln füllen", "Kochen"] },
-        { name: "Fleischlaberl", category: "Mains", portions: 4, prepTime: 30, allergens: ["A", "C"], steps: ["Faschiertes würzen", "Laibchen formen", "Braten"] },
-        { name: "Geselchtes mit Sauerkraut", category: "Mains", portions: 4, prepTime: 60, allergens: [], steps: ["Geselchtes kochen", "Sauerkraut dünsten", "Zusammen servieren"] },
-        { name: "Kümmelbraten", category: "Mains", portions: 6, prepTime: 100, allergens: [], steps: ["Schweinefleisch mit Kümmel würzen", "Langsam braten"] },
-        { name: "Lammstelze", category: "Mains", portions: 4, prepTime: 120, allergens: [], steps: ["Lamm marinieren", "Im Rohr schmoren"] },
-        { name: "Hühnerkeule überbacken", category: "Mains", portions: 4, prepTime: 50, allergens: ["G"], steps: ["Hühnerkeulen braten", "Mit Käse überbacken"] },
-        { name: "Putenschnitzel", category: "Mains", portions: 4, prepTime: 25, allergens: ["A", "C"], steps: ["Pute klopfen", "Panieren", "Braten"] },
-        { name: "Lasagne", category: "Mains", portions: 6, prepTime: 75, allergens: ["A", "C", "G"], steps: ["Bolognese zubereiten", "Schichten", "Überbacken"] },
+        { name: "Wiener Schnitzel", category: "MainMeat", portions: 4, prepTime: 30, allergens: ["A", "C"], steps: ["Fleisch klopfen", "Panieren", "In Butterschmalz ausbacken", "Mit Zitrone servieren"] },
+        { name: "Schweinsbraten", category: "MainMeat", portions: 6, prepTime: 120, allergens: [], steps: ["Schwarte einschneiden", "Würzen", "Im Rohr braten", "Mit Bratensaft servieren"] },
+        { name: "Tafelspitz", category: "MainMeat", portions: 6, prepTime: 180, allergens: ["L"], steps: ["Rindfleisch mit Suppengemüse kochen", "Mit Schnittlauchsauce servieren", "Apfelkren dazu reichen"] },
+        { name: "Backhendl", category: "MainMeat", portions: 4, prepTime: 45, allergens: ["A", "C"], steps: ["Hendl zerteilen", "Panieren", "In Fett ausbacken"] },
+        { name: "Rindsgulasch", category: "MainMeat", portions: 6, prepTime: 120, allergens: [], steps: ["Zwiebeln rösten", "Fleisch anbraten", "Mit Paprika würzen", "Langsam schmoren"] },
+        { name: "Zwiebelrostbraten", category: "MainMeat", portions: 4, prepTime: 40, allergens: [], steps: ["Rostbraten braten", "Röstzwiebeln zubereiten", "Mit Bratensaft servieren"] },
+        { name: "Stelze", category: "MainMeat", portions: 4, prepTime: 150, allergens: [], steps: ["Stelze würzen", "Im Rohr knusprig braten", "Mit Kraut servieren"] },
+        { name: "Cordon Bleu", category: "MainMeat", portions: 4, prepTime: 35, allergens: ["A", "C", "G"], steps: ["Schnitzel füllen", "Mit Schinken und Käse", "Panieren", "Ausbacken"] },
+        { name: "Leberkäse", category: "MainMeat", portions: 8, prepTime: 90, allergens: [], steps: ["Leberkäse backen", "In Scheiben schneiden", "Mit Senf und Semmel servieren"] },
+        { name: "Beuschel", category: "MainMeat", portions: 4, prepTime: 90, allergens: ["A"], steps: ["Innereien kochen", "Sauce zubereiten", "Mit Semmelknödel servieren"] },
+        { name: "Blunzengröstl", category: "MainMeat", portions: 4, prepTime: 30, allergens: ["C"], steps: ["Blutwurst würfeln", "Mit Erdäpfeln braten", "Mit Spiegelei servieren"] },
+        { name: "Kalbsrahmgeschnetzeltes", category: "MainMeat", portions: 4, prepTime: 35, allergens: ["G"], steps: ["Kalbfleisch schnetzeln", "Anbraten", "Mit Rahmsauce servieren"] },
+        { name: "Altwiener Suppentopf", category: "MainMeat", portions: 6, prepTime: 120, allergens: ["I"], steps: ["Rindfleisch mit Gemüse kochen", "Als Eintopf servieren"] },
+        { name: "Faschierter Braten", category: "MainMeat", portions: 6, prepTime: 70, allergens: ["A", "C"], steps: ["Faschiertes würzen", "Formen", "Im Rohr braten"] },
+        { name: "Krautfleckerl mit Speck", category: "MainMeat", portions: 4, prepTime: 40, allergens: ["A", "C"], steps: ["Kraut dünsten", "Fleckerl kochen", "Mit Speck mischen"] },
+        { name: "Gebackene Leber", category: "MainMeat", portions: 4, prepTime: 25, allergens: ["A", "C"], steps: ["Leber schneiden", "Panieren", "Ausbacken", "Mit Erdäpfelpüree servieren"] },
+        { name: "Steirisches Wurzelfleisch", category: "MainMeat", portions: 6, prepTime: 90, allergens: ["L"], steps: ["Schweinfleisch kochen", "Mit Kren servieren", "Wurzelgemüse dazu"] },
+        { name: "Grammelknödel", category: "MainMeat", portions: 4, prepTime: 50, allergens: ["A", "C"], steps: ["Kartoffelteig zubereiten", "Mit Grammeln füllen", "Kochen"] },
+        { name: "Fleischlaberl", category: "MainMeat", portions: 4, prepTime: 30, allergens: ["A", "C"], steps: ["Faschiertes würzen", "Laibchen formen", "Braten"] },
+        { name: "Geselchtes mit Sauerkraut", category: "MainMeat", portions: 4, prepTime: 60, allergens: [], steps: ["Geselchtes kochen", "Sauerkraut dünsten", "Zusammen servieren"] },
+        { name: "Kümmelbraten", category: "MainMeat", portions: 6, prepTime: 100, allergens: [], steps: ["Schweinefleisch mit Kümmel würzen", "Langsam braten"] },
+        { name: "Lammstelze", category: "MainMeat", portions: 4, prepTime: 120, allergens: [], steps: ["Lamm marinieren", "Im Rohr schmoren"] },
+        { name: "Hühnerkeule überbacken", category: "MainMeat", portions: 4, prepTime: 50, allergens: ["G"], steps: ["Hühnerkeulen braten", "Mit Käse überbacken"] },
+        { name: "Putenschnitzel", category: "MainMeat", portions: 4, prepTime: 25, allergens: ["A", "C"], steps: ["Pute klopfen", "Panieren", "Braten"] },
+        { name: "Lasagne", category: "MainMeat", portions: 6, prepTime: 75, allergens: ["A", "C", "G"], steps: ["Bolognese zubereiten", "Schichten", "Überbacken"] },
 
         // MAINS - Vegetarian (20+)
-        { name: "Käsespätzle", category: "MainsVeg", portions: 4, prepTime: 30, allergens: ["A", "C", "G"], steps: ["Spätzle kochen", "Schichten mit Käse", "Mit Röstzwiebeln servieren"] },
-        { name: "Spinatknödel", category: "MainsVeg", portions: 4, prepTime: 40, allergens: ["A", "C", "G"], steps: ["Spinat hacken", "Mit Knödelteig mischen", "Kochen", "Mit brauner Butter servieren"] },
-        { name: "Gemüsestrudel", category: "MainsVeg", portions: 6, prepTime: 50, allergens: ["A", "C", "G"], steps: ["Gemüse dünsten", "In Strudelteig wickeln", "Backen"] },
-        { name: "Eierschwammerl mit Knödel", category: "MainsVeg", portions: 4, prepTime: 35, allergens: ["A", "C", "G"], steps: ["Schwammerl putzen", "In Rahm schwenken", "Mit Semmelknödel servieren"] },
-        { name: "Kasnocken", category: "MainsVeg", portions: 4, prepTime: 30, allergens: ["A", "C", "G"], steps: ["Nockenteig zubereiten", "Mit Käse schichten", "Im Rohr überbacken"] },
-        { name: "Erdäpfelgulasch", category: "MainsVeg", portions: 4, prepTime: 40, allergens: [], steps: ["Kartoffeln und Würstel würfeln", "Mit Paprika kochen"] },
-        { name: "Eiernockerl", category: "MainsVeg", portions: 2, prepTime: 15, allergens: ["A", "C"], steps: ["Nockerl braten", "Mit Ei stocken lassen", "Mit grünem Salat servieren"] },
-        { name: "Topfenknödel", category: "MainsVeg", portions: 4, prepTime: 35, allergens: ["A", "C", "G"], steps: ["Topfenteig zubereiten", "Knödel formen", "Kochen", "In Butterbröseln wälzen"] },
-        { name: "Marillenknödel", category: "MainsVeg", portions: 4, prepTime: 45, allergens: ["A", "C", "G"], steps: ["Kartoffelteig zubereiten", "Marillen einwickeln", "Kochen", "In Bröseln wälzen"] },
-        { name: "Zwetschgenknödel", category: "MainsVeg", portions: 4, prepTime: 45, allergens: ["A", "C", "G"], steps: ["Kartoffelteig zubereiten", "Zwetschgen einwickeln", "Kochen", "Mit Zimt-Zucker servieren"] },
-        { name: "Mohnnudeln", category: "MainsVeg", portions: 4, prepTime: 30, allergens: ["A", "C"], steps: ["Kartoffelteig zu Nudeln formen", "Kochen", "In Mohn und Butter wälzen"] },
-        { name: "Krautstrudel", category: "MainsVeg", portions: 6, prepTime: 60, allergens: ["A", "C"], steps: ["Kraut dünsten", "Mit Kümmel würzen", "In Strudelteig wickeln", "Backen"] },
-        { name: "Gemüselaibchen", category: "MainsVeg", portions: 4, prepTime: 35, allergens: ["A", "C"], steps: ["Gemüse raspeln", "Mit Ei und Mehl binden", "Braten"] },
-        { name: "Käsesuppe", category: "MainsVeg", portions: 4, prepTime: 25, allergens: ["A", "G"], steps: ["Zwiebeln anbraten", "Mit Suppe aufgießen", "Käse einschmelzen"] },
-        { name: "Reiberdatschi", category: "MainsVeg", portions: 4, prepTime: 30, allergens: ["A", "C"], steps: ["Kartoffeln reiben", "Würzen", "Als Laibchen braten"] },
-        { name: "Polenta mit Schwammerl", category: "MainsVeg", portions: 4, prepTime: 35, allergens: ["G"], steps: ["Polenta kochen", "Pilze braten", "Mit Parmesan servieren"] },
-        { name: "Risotto mit Spargel", category: "MainsVeg", portions: 4, prepTime: 40, allergens: ["G"], steps: ["Spargel kochen", "Risotto zubereiten", "Zusammen servieren"] },
-        { name: "Quiche Lorraine", category: "MainsVeg", portions: 6, prepTime: 55, allergens: ["A", "C", "G"], steps: ["Mürbteig backen", "Mit Eiermasse füllen", "Backen"] },
-        { name: "Flammkuchen", category: "MainsVeg", portions: 4, prepTime: 30, allergens: ["A", "G"], steps: ["Teig dünn ausrollen", "Mit Sauerrahm bestreichen", "Belegen", "Backen"] },
-        { name: "Schinkenfleckerl", category: "MainsVeg", portions: 4, prepTime: 35, allergens: ["A", "C", "G"], steps: ["Fleckerl kochen", "Mit Schinken und Sauerrahm überbacken"] },
+        { name: "Käsespätzle", category: "MainVegan", portions: 4, prepTime: 30, allergens: ["A", "C", "G"], steps: ["Spätzle kochen", "Schichten mit Käse", "Mit Röstzwiebeln servieren"] },
+        { name: "Spinatknödel", category: "MainVegan", portions: 4, prepTime: 40, allergens: ["A", "C", "G"], steps: ["Spinat hacken", "Mit Knödelteig mischen", "Kochen", "Mit brauner Butter servieren"] },
+        { name: "Gemüsestrudel", category: "MainVegan", portions: 6, prepTime: 50, allergens: ["A", "C", "G"], steps: ["Gemüse dünsten", "In Strudelteig wickeln", "Backen"] },
+        { name: "Eierschwammerl mit Knödel", category: "MainVegan", portions: 4, prepTime: 35, allergens: ["A", "C", "G"], steps: ["Schwammerl putzen", "In Rahm schwenken", "Mit Semmelknödel servieren"] },
+        { name: "Kasnocken", category: "MainVegan", portions: 4, prepTime: 30, allergens: ["A", "C", "G"], steps: ["Nockenteig zubereiten", "Mit Käse schichten", "Im Rohr überbacken"] },
+        { name: "Erdäpfelgulasch", category: "MainVegan", portions: 4, prepTime: 40, allergens: [], steps: ["Kartoffeln und Würstel würfeln", "Mit Paprika kochen"] },
+        { name: "Eiernockerl", category: "MainVegan", portions: 2, prepTime: 15, allergens: ["A", "C"], steps: ["Nockerl braten", "Mit Ei stocken lassen", "Mit grünem Salat servieren"] },
+        { name: "Topfenknödel", category: "MainVegan", portions: 4, prepTime: 35, allergens: ["A", "C", "G"], steps: ["Topfenteig zubereiten", "Knödel formen", "Kochen", "In Butterbröseln wälzen"] },
+        { name: "Marillenknödel", category: "MainVegan", portions: 4, prepTime: 45, allergens: ["A", "C", "G"], steps: ["Kartoffelteig zubereiten", "Marillen einwickeln", "Kochen", "In Bröseln wälzen"] },
+        { name: "Zwetschgenknödel", category: "MainVegan", portions: 4, prepTime: 45, allergens: ["A", "C", "G"], steps: ["Kartoffelteig zubereiten", "Zwetschgen einwickeln", "Kochen", "Mit Zimt-Zucker servieren"] },
+        { name: "Mohnnudeln", category: "MainVegan", portions: 4, prepTime: 30, allergens: ["A", "C"], steps: ["Kartoffelteig zu Nudeln formen", "Kochen", "In Mohn und Butter wälzen"] },
+        { name: "Krautstrudel", category: "MainVegan", portions: 6, prepTime: 60, allergens: ["A", "C"], steps: ["Kraut dünsten", "Mit Kümmel würzen", "In Strudelteig wickeln", "Backen"] },
+        { name: "Gemüselaibchen", category: "MainVegan", portions: 4, prepTime: 35, allergens: ["A", "C"], steps: ["Gemüse raspeln", "Mit Ei und Mehl binden", "Braten"] },
+        { name: "Käsesuppe", category: "MainVegan", portions: 4, prepTime: 25, allergens: ["A", "G"], steps: ["Zwiebeln anbraten", "Mit Suppe aufgießen", "Käse einschmelzen"] },
+        { name: "Reiberdatschi", category: "MainVegan", portions: 4, prepTime: 30, allergens: ["A", "C"], steps: ["Kartoffeln reiben", "Würzen", "Als Laibchen braten"] },
+        { name: "Polenta mit Schwammerl", category: "MainVegan", portions: 4, prepTime: 35, allergens: ["G"], steps: ["Polenta kochen", "Pilze braten", "Mit Parmesan servieren"] },
+        { name: "Risotto mit Spargel", category: "MainVegan", portions: 4, prepTime: 40, allergens: ["G"], steps: ["Spargel kochen", "Risotto zubereiten", "Zusammen servieren"] },
+        { name: "Quiche Lorraine", category: "MainVegan", portions: 6, prepTime: 55, allergens: ["A", "C", "G"], steps: ["Mürbteig backen", "Mit Eiermasse füllen", "Backen"] },
+        { name: "Flammkuchen", category: "MainVegan", portions: 4, prepTime: 30, allergens: ["A", "G"], steps: ["Teig dünn ausrollen", "Mit Sauerrahm bestreichen", "Belegen", "Backen"] },
+        { name: "Schinkenfleckerl", category: "MainVegan", portions: 4, prepTime: 35, allergens: ["A", "C", "G"], steps: ["Fleckerl kochen", "Mit Schinken und Sauerrahm überbacken"] },
 
         // SIDES (25+)
         { name: "Pommes Frites", category: "Sides", portions: 4, prepTime: 25, allergens: [], steps: ["Kartoffeln schneiden", "Frittieren", "Salzen"] },
@@ -762,31 +847,31 @@ export async function registerRoutes(
         { name: "Rahmkohlrabi", category: "Sides", portions: 4, prepTime: 25, allergens: ["G"], steps: ["Kohlrabi kochen", "In Rahmsauce schwenken"] },
 
         // DESSERTS (25+)
-        { name: "Kaiserschmarrn", category: "Desserts", portions: 4, prepTime: 25, allergens: ["A", "C", "G"], steps: ["Teig zubereiten", "In Pfanne backen", "Zerreißen", "Mit Puderzucker bestreuen"] },
-        { name: "Apfelstrudel", category: "Desserts", portions: 8, prepTime: 60, allergens: ["A"], steps: ["Strudelteig ziehen", "Äpfel einwickeln", "Backen", "Mit Vanillesauce servieren"] },
-        { name: "Sachertorte", category: "Desserts", portions: 12, prepTime: 90, allergens: ["A", "C", "G"], steps: ["Schokobiskuit backen", "Mit Marmelade füllen", "Glasieren"] },
-        { name: "Palatschinken", category: "Desserts", portions: 4, prepTime: 20, allergens: ["A", "C", "G"], steps: ["Teig zubereiten", "Dünne Pfannkuchen backen", "Mit Marmelade füllen"] },
-        { name: "Topfenstrudel", category: "Desserts", portions: 8, prepTime: 50, allergens: ["A", "C", "G"], steps: ["Topfenfülle zubereiten", "Einwickeln", "Backen"] },
-        { name: "Germknödel", category: "Desserts", portions: 4, prepTime: 60, allergens: ["A", "C", "G"], steps: ["Germteig zubereiten", "Mit Powidl füllen", "Dämpfen", "Mit Mohn bestreuen"] },
-        { name: "Buchteln", category: "Desserts", portions: 12, prepTime: 75, allergens: ["A", "C", "G"], steps: ["Germteig zubereiten", "Mit Marmelade füllen", "Backen", "Mit Vanillesauce servieren"] },
-        { name: "Linzer Torte", category: "Desserts", portions: 12, prepTime: 60, allergens: ["A", "C", "H"], steps: ["Mürbteig mit Nüssen", "Mit Ribiselmarmelade füllen", "Gitter auflegen", "Backen"] },
-        { name: "Esterházy Torte", category: "Desserts", portions: 12, prepTime: 90, allergens: ["A", "C", "H"], steps: ["Nussböden backen", "Mit Buttercreme füllen", "Marmorglasur"] },
-        { name: "Punschkrapferl", category: "Desserts", portions: 16, prepTime: 60, allergens: ["A", "C"], steps: ["Biskuitreste mit Punsch vermengen", "Formen", "Rosa glasieren"] },
-        { name: "Powidltascherl", category: "Desserts", portions: 4, prepTime: 45, allergens: ["A", "C"], steps: ["Kartoffelteig zubereiten", "Mit Powidl füllen", "Kochen", "In Bröseln wälzen"] },
-        { name: "Grießschmarrn", category: "Desserts", portions: 4, prepTime: 25, allergens: ["A", "C", "G"], steps: ["Grießbrei kochen", "In Pfanne anbraten", "Zerreißen"] },
-        { name: "Scheiterhaufen", category: "Desserts", portions: 6, prepTime: 65, allergens: ["A", "C", "G"], steps: ["Semmeln und Äpfel schichten", "Mit Eiermilch übergießen", "Backen"] },
-        { name: "Milchrahmstrudel", category: "Desserts", portions: 8, prepTime: 55, allergens: ["A", "C", "G"], steps: ["Milchrahmfülle zubereiten", "In Strudelteig wickeln", "Backen"] },
-        { name: "Nussschnitte", category: "Desserts", portions: 16, prepTime: 50, allergens: ["A", "C", "H"], steps: ["Biskuit backen", "Mit Nusscreme füllen", "Schneiden"] },
-        { name: "Kardinalschnitte", category: "Desserts", portions: 12, prepTime: 60, allergens: ["A", "C"], steps: ["Biskuit und Baiser backen", "Schichten", "Schneiden"] },
-        { name: "Vanillekipferl", category: "Desserts", portions: 40, prepTime: 45, allergens: ["A", "H"], steps: ["Mürbteig mit Nüssen", "Kipferl formen", "Backen", "In Vanillezucker wälzen"] },
-        { name: "Marmorkuchen", category: "Desserts", portions: 12, prepTime: 60, allergens: ["A", "C", "G"], steps: ["Rührteig zubereiten", "Teil mit Kakao färben", "Marmorieren", "Backen"] },
-        { name: "Gugelhupf", category: "Desserts", portions: 12, prepTime: 70, allergens: ["A", "C", "G"], steps: ["Germteig zubereiten", "Mit Rosinen", "In Form backen"] },
-        { name: "Mohntorte", category: "Desserts", portions: 12, prepTime: 60, allergens: ["A", "C"], steps: ["Mohnmasse zubereiten", "Torte backen", "Mit Schlag servieren"] },
-        { name: "Nusstorte", category: "Desserts", portions: 12, prepTime: 70, allergens: ["A", "C", "H"], steps: ["Nussböden backen", "Mit Creme füllen"] },
-        { name: "Indianer", category: "Desserts", portions: 8, prepTime: 40, allergens: ["A", "C"], steps: ["Bisquit backen", "Aushöhlen", "Mit Schlag füllen", "Glasieren"] },
-        { name: "Cremeschnitte", category: "Desserts", portions: 12, prepTime: 50, allergens: ["A", "C", "G"], steps: ["Blätterteig backen", "Vanillecreme zubereiten", "Schichten"] },
-        { name: "Obstknödel", category: "Desserts", portions: 4, prepTime: 45, allergens: ["A", "C", "G"], steps: ["Kartoffelteig zubereiten", "Obst einwickeln", "Kochen", "In Bröseln wälzen"] },
-        { name: "Wiener Melange Mousse", category: "Desserts", portions: 4, prepTime: 30, allergens: ["C", "G"], steps: ["Kaffee-Mousse zubereiten", "Kalt stellen", "Mit Schlag servieren"] },
+        { name: "Kaiserschmarrn", category: "HotDesserts", portions: 4, prepTime: 25, allergens: ["A", "C", "G"], steps: ["Teig zubereiten", "In Pfanne backen", "Zerreißen", "Mit Puderzucker bestreuen"] },
+        { name: "Apfelstrudel", category: "HotDesserts", portions: 8, prepTime: 60, allergens: ["A"], steps: ["Strudelteig ziehen", "Äpfel einwickeln", "Backen", "Mit Vanillesauce servieren"] },
+        { name: "Sachertorte", category: "ColdDesserts", portions: 12, prepTime: 90, allergens: ["A", "C", "G"], steps: ["Schokobiskuit backen", "Mit Marmelade füllen", "Glasieren"] },
+        { name: "Palatschinken", category: "HotDesserts", portions: 4, prepTime: 20, allergens: ["A", "C", "G"], steps: ["Teig zubereiten", "Dünne Pfannkuchen backen", "Mit Marmelade füllen"] },
+        { name: "Topfenstrudel", category: "HotDesserts", portions: 8, prepTime: 50, allergens: ["A", "C", "G"], steps: ["Topfenfülle zubereiten", "Einwickeln", "Backen"] },
+        { name: "Germknödel", category: "HotDesserts", portions: 4, prepTime: 60, allergens: ["A", "C", "G"], steps: ["Germteig zubereiten", "Mit Powidl füllen", "Dämpfen", "Mit Mohn bestreuen"] },
+        { name: "Buchteln", category: "HotDesserts", portions: 12, prepTime: 75, allergens: ["A", "C", "G"], steps: ["Germteig zubereiten", "Mit Marmelade füllen", "Backen", "Mit Vanillesauce servieren"] },
+        { name: "Linzer Torte", category: "ColdDesserts", portions: 12, prepTime: 60, allergens: ["A", "C", "H"], steps: ["Mürbteig mit Nüssen", "Mit Ribiselmarmelade füllen", "Gitter auflegen", "Backen"] },
+        { name: "Esterházy Torte", category: "ColdDesserts", portions: 12, prepTime: 90, allergens: ["A", "C", "H"], steps: ["Nussböden backen", "Mit Buttercreme füllen", "Marmorglasur"] },
+        { name: "Punschkrapferl", category: "ColdDesserts", portions: 16, prepTime: 60, allergens: ["A", "C"], steps: ["Biskuitreste mit Punsch vermengen", "Formen", "Rosa glasieren"] },
+        { name: "Powidltascherl", category: "HotDesserts", portions: 4, prepTime: 45, allergens: ["A", "C"], steps: ["Kartoffelteig zubereiten", "Mit Powidl füllen", "Kochen", "In Bröseln wälzen"] },
+        { name: "Grießschmarrn", category: "HotDesserts", portions: 4, prepTime: 25, allergens: ["A", "C", "G"], steps: ["Grießbrei kochen", "In Pfanne anbraten", "Zerreißen"] },
+        { name: "Scheiterhaufen", category: "HotDesserts", portions: 6, prepTime: 65, allergens: ["A", "C", "G"], steps: ["Semmeln und Äpfel schichten", "Mit Eiermilch übergießen", "Backen"] },
+        { name: "Milchrahmstrudel", category: "HotDesserts", portions: 8, prepTime: 55, allergens: ["A", "C", "G"], steps: ["Milchrahmfülle zubereiten", "In Strudelteig wickeln", "Backen"] },
+        { name: "Nussschnitte", category: "ColdDesserts", portions: 16, prepTime: 50, allergens: ["A", "C", "H"], steps: ["Biskuit backen", "Mit Nusscreme füllen", "Schneiden"] },
+        { name: "Kardinalschnitte", category: "ColdDesserts", portions: 12, prepTime: 60, allergens: ["A", "C"], steps: ["Biskuit und Baiser backen", "Schichten", "Schneiden"] },
+        { name: "Vanillekipferl", category: "ColdDesserts", portions: 40, prepTime: 45, allergens: ["A", "H"], steps: ["Mürbteig mit Nüssen", "Kipferl formen", "Backen", "In Vanillezucker wälzen"] },
+        { name: "Marmorkuchen", category: "ColdDesserts", portions: 12, prepTime: 60, allergens: ["A", "C", "G"], steps: ["Rührteig zubereiten", "Teil mit Kakao färben", "Marmorieren", "Backen"] },
+        { name: "Gugelhupf", category: "ColdDesserts", portions: 12, prepTime: 70, allergens: ["A", "C", "G"], steps: ["Germteig zubereiten", "Mit Rosinen", "In Form backen"] },
+        { name: "Mohntorte", category: "ColdDesserts", portions: 12, prepTime: 60, allergens: ["A", "C"], steps: ["Mohnmasse zubereiten", "Torte backen", "Mit Schlag servieren"] },
+        { name: "Nusstorte", category: "ColdDesserts", portions: 12, prepTime: 70, allergens: ["A", "C", "H"], steps: ["Nussböden backen", "Mit Creme füllen"] },
+        { name: "Indianer", category: "ColdDesserts", portions: 8, prepTime: 40, allergens: ["A", "C"], steps: ["Bisquit backen", "Aushöhlen", "Mit Schlag füllen", "Glasieren"] },
+        { name: "Cremeschnitte", category: "ColdDesserts", portions: 12, prepTime: 50, allergens: ["A", "C", "G"], steps: ["Blätterteig backen", "Vanillecreme zubereiten", "Schichten"] },
+        { name: "Obstknödel", category: "HotDesserts", portions: 4, prepTime: 45, allergens: ["A", "C", "G"], steps: ["Kartoffelteig zubereiten", "Obst einwickeln", "Kochen", "In Bröseln wälzen"] },
+        { name: "Wiener Melange Mousse", category: "ColdDesserts", portions: 4, prepTime: 30, allergens: ["C", "G"], steps: ["Kaffee-Mousse zubereiten", "Kalt stellen", "Mit Schlag servieren"] },
 
         // SALADS (10+)
         { name: "Steirischer Käferbohnensalat", category: "Salads", portions: 4, prepTime: 20, allergens: [], steps: ["Käferbohnen kochen", "Mit Kernöl marinieren", "Mit Zwiebeln servieren"] },
@@ -801,52 +886,52 @@ export async function registerRoutes(
         { name: "Selleriesalat", category: "Salads", portions: 4, prepTime: 15, allergens: ["G"], steps: ["Sellerie raspeln", "Mit Mayonnaise anmachen"] },
 
         // BREAKFAST (10+)
-        { name: "Bauernfrühstück", category: "Breakfast", portions: 2, prepTime: 20, allergens: ["C"], steps: ["Kartoffeln braten", "Eier und Speck dazugeben", "Stocken lassen"] },
-        { name: "Strammer Max", category: "Breakfast", portions: 2, prepTime: 15, allergens: ["A", "C"], steps: ["Brot mit Schinken belegen", "Spiegelei darauf geben"] },
-        { name: "Eierspeis", category: "Breakfast", portions: 2, prepTime: 10, allergens: ["C"], steps: ["Eier verquirlen", "In Butter stocken lassen"] },
-        { name: "Speckbrot", category: "Breakfast", portions: 2, prepTime: 10, allergens: ["A"], steps: ["Speck anbraten", "Auf Brot servieren"] },
-        { name: "Verhackerts", category: "Breakfast", portions: 4, prepTime: 15, allergens: ["A"], steps: ["Grammel faschieren", "Würzen", "Auf Brot streichen"] },
-        { name: "Kipferl mit Butter", category: "Breakfast", portions: 4, prepTime: 5, allergens: ["A", "G"], steps: ["Kipferl aufschneiden", "Mit Butter bestreichen"] },
-        { name: "Birchermüsli", category: "Breakfast", portions: 4, prepTime: 15, allergens: ["A", "G", "H"], steps: ["Haferflocken einweichen", "Mit Joghurt und Obst mischen"] },
-        { name: "Käseaufstrich", category: "Breakfast", portions: 4, prepTime: 10, allergens: ["G"], steps: ["Topfen mit Käse mischen", "Würzen", "Auf Brot streichen"] },
-        { name: "Liptauer", category: "Breakfast", portions: 4, prepTime: 10, allergens: ["G"], steps: ["Topfen mit Paprika und Gewürzen mischen", "Kalt stellen"] },
-        { name: "Wiener Frühstück", category: "Breakfast", portions: 2, prepTime: 15, allergens: ["A", "C", "G"], steps: ["Semmel mit Butter", "Weiches Ei", "Kaffee dazu"] },
+        { name: "Bauernfrühstück", category: "Sides", portions: 2, prepTime: 20, allergens: ["C"], steps: ["Kartoffeln braten", "Eier und Speck dazugeben", "Stocken lassen"] },
+        { name: "Strammer Max", category: "Sides", portions: 2, prepTime: 15, allergens: ["A", "C"], steps: ["Brot mit Schinken belegen", "Spiegelei darauf geben"] },
+        { name: "Eierspeis", category: "Sides", portions: 2, prepTime: 10, allergens: ["C"], steps: ["Eier verquirlen", "In Butter stocken lassen"] },
+        { name: "Speckbrot", category: "Sides", portions: 2, prepTime: 10, allergens: ["A"], steps: ["Speck anbraten", "Auf Brot servieren"] },
+        { name: "Verhackerts", category: "Sides", portions: 4, prepTime: 15, allergens: ["A"], steps: ["Grammel faschieren", "Würzen", "Auf Brot streichen"] },
+        { name: "Kipferl mit Butter", category: "Sides", portions: 4, prepTime: 5, allergens: ["A", "G"], steps: ["Kipferl aufschneiden", "Mit Butter bestreichen"] },
+        { name: "Birchermüsli", category: "Sides", portions: 4, prepTime: 15, allergens: ["A", "G", "H"], steps: ["Haferflocken einweichen", "Mit Joghurt und Obst mischen"] },
+        { name: "Käseaufstrich", category: "Sides", portions: 4, prepTime: 10, allergens: ["G"], steps: ["Topfen mit Käse mischen", "Würzen", "Auf Brot streichen"] },
+        { name: "Liptauer", category: "Sides", portions: 4, prepTime: 10, allergens: ["G"], steps: ["Topfen mit Paprika und Gewürzen mischen", "Kalt stellen"] },
+        { name: "Wiener Frühstück", category: "Sides", portions: 2, prepTime: 15, allergens: ["A", "C", "G"], steps: ["Semmel mit Butter", "Weiches Ei", "Kaffee dazu"] },
 
         // SNACKS (10+)
-        { name: "Bosna", category: "Snacks", portions: 4, prepTime: 15, allergens: ["A"], steps: ["Bratwürste grillen", "In Semmel mit Zwiebeln und Senf servieren"] },
-        { name: "Käsekrainer", category: "Snacks", portions: 4, prepTime: 15, allergens: ["G"], steps: ["Krainer grillen", "Mit Senf und Kren servieren"] },
-        { name: "Frankfurter", category: "Snacks", portions: 4, prepTime: 10, allergens: [], steps: ["Würstel erhitzen", "Mit Senf servieren"] },
-        { name: "Leberkässemmel", category: "Snacks", portions: 4, prepTime: 10, allergens: ["A"], steps: ["Leberkäse anbraten", "In Semmel mit Senf servieren"] },
-        { name: "Brezel", category: "Snacks", portions: 6, prepTime: 30, allergens: ["A"], steps: ["Laugengebäck formen", "Backen", "Mit Butter servieren"] },
-        { name: "Langosch", category: "Snacks", portions: 4, prepTime: 25, allergens: ["A", "G"], steps: ["Teig ausbacken", "Mit Knoblauch und Käse belegen"] },
-        { name: "Topfengolatsche", category: "Snacks", portions: 8, prepTime: 45, allergens: ["A", "C", "G"], steps: ["Blätterteig mit Topfen füllen", "Backen"] },
-        { name: "Apfeltaschen", category: "Snacks", portions: 8, prepTime: 40, allergens: ["A"], steps: ["Blätterteig mit Apfel füllen", "Backen"] },
-        { name: "Mohnflesserl", category: "Snacks", portions: 6, prepTime: 35, allergens: ["A"], steps: ["Germteig flechten", "Mit Mohn bestreuen", "Backen"] },
-        { name: "Salzstangerl", category: "Snacks", portions: 8, prepTime: 30, allergens: ["A"], steps: ["Laugengebäck formen", "Mit Salz bestreuen", "Backen"] },
+        { name: "Bosna", category: "Sides", portions: 4, prepTime: 15, allergens: ["A"], steps: ["Bratwürste grillen", "In Semmel mit Zwiebeln und Senf servieren"] },
+        { name: "Käsekrainer", category: "Sides", portions: 4, prepTime: 15, allergens: ["G"], steps: ["Krainer grillen", "Mit Senf und Kren servieren"] },
+        { name: "Frankfurter", category: "Sides", portions: 4, prepTime: 10, allergens: [], steps: ["Würstel erhitzen", "Mit Senf servieren"] },
+        { name: "Leberkässemmel", category: "Sides", portions: 4, prepTime: 10, allergens: ["A"], steps: ["Leberkäse anbraten", "In Semmel mit Senf servieren"] },
+        { name: "Brezel", category: "Sides", portions: 6, prepTime: 30, allergens: ["A"], steps: ["Laugengebäck formen", "Backen", "Mit Butter servieren"] },
+        { name: "Langosch", category: "Sides", portions: 4, prepTime: 25, allergens: ["A", "G"], steps: ["Teig ausbacken", "Mit Knoblauch und Käse belegen"] },
+        { name: "Topfengolatsche", category: "Sides", portions: 8, prepTime: 45, allergens: ["A", "C", "G"], steps: ["Blätterteig mit Topfen füllen", "Backen"] },
+        { name: "Apfeltaschen", category: "Sides", portions: 8, prepTime: 40, allergens: ["A"], steps: ["Blätterteig mit Apfel füllen", "Backen"] },
+        { name: "Mohnflesserl", category: "Sides", portions: 6, prepTime: 35, allergens: ["A"], steps: ["Germteig flechten", "Mit Mohn bestreuen", "Backen"] },
+        { name: "Salzstangerl", category: "Sides", portions: 8, prepTime: 30, allergens: ["A"], steps: ["Laugengebäck formen", "Mit Salz bestreuen", "Backen"] },
 
         // DRINKS (10+)
-        { name: "Wiener Melange", category: "Drinks", portions: 1, prepTime: 5, allergens: ["G"], steps: ["Espresso zubereiten", "Mit aufgeschäumter Milch servieren"] },
-        { name: "Einspänner", category: "Drinks", portions: 1, prepTime: 5, allergens: ["G"], steps: ["Mokka in Glas", "Mit Schlagobers bedecken"] },
-        { name: "Almudler Spritzer", category: "Drinks", portions: 1, prepTime: 2, allergens: [], steps: ["Almdudler mit Soda mischen"] },
-        { name: "Hollunder Spritzer", category: "Drinks", portions: 1, prepTime: 2, allergens: [], steps: ["Holundersirup mit Soda aufgießen"] },
-        { name: "Zitronen Eistee", category: "Drinks", portions: 4, prepTime: 15, allergens: [], steps: ["Tee kochen", "Mit Zitrone kalt stellen"] },
-        { name: "Apfelsaft gespritzt", category: "Drinks", portions: 1, prepTime: 2, allergens: [], steps: ["Apfelsaft mit Mineralwasser mischen"] },
-        { name: "Heiße Schokolade", category: "Drinks", portions: 1, prepTime: 10, allergens: ["G"], steps: ["Milch erhitzen", "Schokolade einrühren", "Mit Schlag servieren"] },
-        { name: "Punsch", category: "Drinks", portions: 4, prepTime: 15, allergens: [], steps: ["Tee mit Gewürzen kochen", "Fruchtsaft hinzufügen"] },
-        { name: "Glühwein", category: "Drinks", portions: 4, prepTime: 15, allergens: [], steps: ["Rotwein mit Gewürzen erhitzen", "Nicht kochen"] },
-        { name: "Frischer Orangensaft", category: "Drinks", portions: 2, prepTime: 5, allergens: [], steps: ["Orangen auspressen", "Kalt servieren"] },
+        { name: "Wiener Melange", category: "ColdSauces", portions: 1, prepTime: 5, allergens: ["G"], steps: ["Espresso zubereiten", "Mit aufgeschäumter Milch servieren"] },
+        { name: "Einspänner", category: "ColdSauces", portions: 1, prepTime: 5, allergens: ["G"], steps: ["Mokka in Glas", "Mit Schlagobers bedecken"] },
+        { name: "Almudler Spritzer", category: "ColdSauces", portions: 1, prepTime: 2, allergens: [], steps: ["Almdudler mit Soda mischen"] },
+        { name: "Hollunder Spritzer", category: "ColdSauces", portions: 1, prepTime: 2, allergens: [], steps: ["Holundersirup mit Soda aufgießen"] },
+        { name: "Zitronen Eistee", category: "ColdSauces", portions: 4, prepTime: 15, allergens: [], steps: ["Tee kochen", "Mit Zitrone kalt stellen"] },
+        { name: "Apfelsaft gespritzt", category: "ColdSauces", portions: 1, prepTime: 2, allergens: [], steps: ["Apfelsaft mit Mineralwasser mischen"] },
+        { name: "Heiße Schokolade", category: "ColdSauces", portions: 1, prepTime: 10, allergens: ["G"], steps: ["Milch erhitzen", "Schokolade einrühren", "Mit Schlag servieren"] },
+        { name: "Punsch", category: "ColdSauces", portions: 4, prepTime: 15, allergens: [], steps: ["Tee mit Gewürzen kochen", "Fruchtsaft hinzufügen"] },
+        { name: "Glühwein", category: "ColdSauces", portions: 4, prepTime: 15, allergens: [], steps: ["Rotwein mit Gewürzen erhitzen", "Nicht kochen"] },
+        { name: "Frischer Orangensaft", category: "ColdSauces", portions: 2, prepTime: 5, allergens: [], steps: ["Orangen auspressen", "Kalt servieren"] },
 
         // STARTERS (10+)
-        { name: "Gebackene Champignons", category: "Starters", portions: 4, prepTime: 25, allergens: ["A", "C"], steps: ["Champignons panieren", "Ausbacken", "Mit Sauce Tartare servieren"] },
-        { name: "Schinkenröllchen", category: "Starters", portions: 4, prepTime: 15, allergens: ["G"], steps: ["Schinken mit Kren-Frischkäse füllen", "Aufrollen"] },
-        { name: "Geräucherte Forelle", category: "Starters", portions: 4, prepTime: 10, allergens: ["D"], steps: ["Forelle filetieren", "Mit Kren-Rahm servieren"] },
-        { name: "Vitello Tonnato", category: "Starters", portions: 6, prepTime: 30, allergens: ["C", "D"], steps: ["Kalbfleisch kochen", "Mit Thunfischsauce servieren"] },
-        { name: "Beef Tatar", category: "Starters", portions: 4, prepTime: 20, allergens: ["C"], steps: ["Rindfleisch fein hacken", "Würzen", "Mit Toast servieren"] },
-        { name: "Carpaccio", category: "Starters", portions: 4, prepTime: 15, allergens: ["G"], steps: ["Rindfleisch dünn aufschneiden", "Mit Parmesan und Rucola servieren"] },
-        { name: "Bruschetta", category: "Starters", portions: 4, prepTime: 15, allergens: ["A"], steps: ["Brot rösten", "Mit Tomaten-Basilikum belegen"] },
-        { name: "Antipasti Teller", category: "Starters", portions: 4, prepTime: 20, allergens: [], steps: ["Mariniertes Gemüse anrichten", "Mit Oliven servieren"] },
-        { name: "Bündnerfleisch", category: "Starters", portions: 4, prepTime: 10, allergens: [], steps: ["Bündnerfleisch dünn aufschneiden", "Mit Brot servieren"] },
-        { name: "Räucherlachs", category: "Starters", portions: 4, prepTime: 10, allergens: ["D"], steps: ["Lachs auslegen", "Mit Dill und Zitrone servieren"] }
+        { name: "Gebackene Champignons", category: "Salads", portions: 4, prepTime: 25, allergens: ["A", "C"], steps: ["Champignons panieren", "Ausbacken", "Mit Sauce Tartare servieren"] },
+        { name: "Schinkenröllchen", category: "Salads", portions: 4, prepTime: 15, allergens: ["G"], steps: ["Schinken mit Kren-Frischkäse füllen", "Aufrollen"] },
+        { name: "Geräucherte Forelle", category: "Salads", portions: 4, prepTime: 10, allergens: ["D"], steps: ["Forelle filetieren", "Mit Kren-Rahm servieren"] },
+        { name: "Vitello Tonnato", category: "Salads", portions: 6, prepTime: 30, allergens: ["C", "D"], steps: ["Kalbfleisch kochen", "Mit Thunfischsauce servieren"] },
+        { name: "Beef Tatar", category: "Salads", portions: 4, prepTime: 20, allergens: ["C"], steps: ["Rindfleisch fein hacken", "Würzen", "Mit Toast servieren"] },
+        { name: "Carpaccio", category: "Salads", portions: 4, prepTime: 15, allergens: ["G"], steps: ["Rindfleisch dünn aufschneiden", "Mit Parmesan und Rucola servieren"] },
+        { name: "Bruschetta", category: "Salads", portions: 4, prepTime: 15, allergens: ["A"], steps: ["Brot rösten", "Mit Tomaten-Basilikum belegen"] },
+        { name: "Antipasti Teller", category: "Salads", portions: 4, prepTime: 20, allergens: [], steps: ["Mariniertes Gemüse anrichten", "Mit Oliven servieren"] },
+        { name: "Bündnerfleisch", category: "Salads", portions: 4, prepTime: 10, allergens: [], steps: ["Bündnerfleisch dünn aufschneiden", "Mit Brot servieren"] },
+        { name: "Räucherlachs", category: "Salads", portions: 4, prepTime: 10, allergens: ["D"], steps: ["Lachs auslegen", "Mit Dill und Zitrone servieren"] }
       ];
 
       let created = 0;

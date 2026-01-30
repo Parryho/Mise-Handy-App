@@ -25,7 +25,7 @@ export default function Login() {
     setLoading(false);
     
     if (result.success) {
-      setLocation("/");
+      setLocation("/today");
     } else {
       setError(result.error || "Anmeldung fehlgeschlagen");
     }
@@ -81,14 +81,7 @@ export default function Login() {
           </form>
           
           <div className="mt-6 text-center text-sm text-muted-foreground">
-            Noch kein Konto?{" "}
-            <button 
-              onClick={() => setLocation("/register")} 
-              className="text-primary hover:underline"
-              data-testid="link-register"
-            >
-              Registrieren
-            </button>
+            Kein Konto? Bitte wenden Sie sich an den Administrator.
           </div>
         </CardContent>
       </Card>
